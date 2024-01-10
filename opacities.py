@@ -199,7 +199,7 @@ class Transitions:
 class CrossSections:
     def __init__(
             self, states_file, transitions_file, pRT_wave_file, 
-            mass, E_ion, max_nu_separation=np.inf, 
+            mass, E_ion, max_nu_sep=250, max_sep_voigt=True, 
             is_alkali=False, only_valid=True, 
             ):
 
@@ -210,17 +210,25 @@ class CrossSections:
             )
 
         # Maximum wavenumber separation [cm^-1]
-        self.max_nu_separation = max_nu_separation
+        self.max_nu_sep = max_nu_sep
+        # Separation as function of Voigt width
+        self.max_sep_voigt = max_sep_voigt
 
         # Wavelength / wavenumber grid
         self.wave = np.loadtxt(pRT_wave_file) * 1e7 # [nm]
-        self.wave = self.wave[(self.wave>300) & (self.wave<28000)]
-        #self.wave = self.wave[(self.wave>300) & (self.wave<350)]
-        #self.wave = np.linspace(350,370,10000) # [nm]
-        self.nu   = 1e7 / self.wave # [cm^-1]
+        
+        self.mask_wave_range = (self.wave>300) & (self.wave<28000) # High-res. wavelengths
+        #self.wave = self.wave[self.mask_wave_range]
+        self.nu = 1e7 / self.wave[self.mask_wave_range] # [cm^-1]
 
-    def line_cutoff_mask(self, nu_0):
-        return np.abs(self.nu-nu_0) < self.max_nu_separation
+        #if rank == 0:
+        #    np.savetxt('./data/wave.dat', self.wave[:,None])
+
+    def line_cutoff_mask(self, nu_0, gamma_L=None):
+        if gamma_L is not None:
+            return np.abs(self.nu-nu_0) < self.max_nu_sep*gamma_L
+        
+        return np.abs(self.nu-nu_0) < self.max_nu_sep
 
     def line_profile(self, nu_0, gamma_L, gamma_G, mask_nu):
 
@@ -237,7 +245,12 @@ class CrossSections:
         nu_0_i = self.trans.nu_0[idx]
 
         # Get line-cutoff mask
-        mask_nu_i = self.line_cutoff_mask(nu_0_i)
+        if self.max_sep_voigt:
+            mask_nu_i = self.line_cutoff_mask(
+                nu_0_i, gamma_L=self.trans.gamma_L[idx]
+                )
+        else:
+            mask_nu_i = self.line_cutoff_mask(nu_0_i)
 
         # Get the Voigt line-profile
         f_i = np.zeros_like(self.nu)
@@ -250,7 +263,7 @@ class CrossSections:
         sigma_i = self.trans.S[idx] * f_i
         return sigma_i
     
-    def get_opacity(self, T, P, output_file='./data/opacities.dat'):
+    def get_opacity(self, T, P, output_dir='./data/'):
 
         # Update the line-widths and -strengths
         self.trans(P=P, T=T, states=self.states)
@@ -285,16 +298,57 @@ class CrossSections:
         comm.Barrier()
 
         # Sum the outputs of all processes together
-        sigma = comm.reduce(sigma_per_rank, op=MPI.SUM, root=0)
+        sigma_wave_range = comm.reduce(sigma_per_rank, op=MPI.SUM, root=0)
         
         if rank == 0:
-            self.sigma = sigma
-            np.savetxt(output_file, self.sigma[:,None])
-            np.savetxt('./data/wave.dat', self.wave[:,None])
-            return self.sigma
+            sigma = np.ones_like(self.wave)*1e-250
+            sigma[self.mask_wave_range] = sigma_wave_range
 
-T = 4000; P = 1
+            np.savetxt(
+                '{}/sigma_{:.0f}.K_{:6f}bar.dat'.format(output_dir, T, P), 
+                np.column_stack((self.wave*1e-7, sigma))
+                )
+        
+        # Pause until all processes have finished
+        comm.Barrier()
 
+temperatures = np.array([
+    81.14113604736988, 
+    109.60677358237457, 
+    148.05862230132453, 
+    200., 
+    270.163273706, 
+    364.940972297, 
+    492.968238926, 
+    665.909566306, 
+    899.521542126, 
+    1215.08842295, 
+    1641.36133093, 
+    2000., 
+    2217.17775249, 
+    2500., 
+    2750., 
+    2995., 
+    3250., 
+    3500., 
+    3750., 
+    4000., 
+])
+
+pressures = np.array([
+    0.000001, 
+    0.00001, 
+    0.0001, 
+    0.001, 
+    0.01, 
+    0.1, 
+    1.0, 
+    10.0, 
+    100.0, 
+    1000.0, 
+])
+
+'''
 CS = CrossSections(
     states_file='./data/Fe_I_states.txt', 
     transitions_file='./data/Fe_I_transitions.txt', 
@@ -308,7 +362,11 @@ CS = CrossSections(
     transitions_file='./data/Mn_I_transitions.txt', 
     pRT_wave_file='./data/wlen_petitRADTRANS.dat', 
     mass=54.938044*amu, E_ion=59959.560, 
-    max_nu_separation=25
+    max_nu_sep=250, max_sep_voigt=True, 
 )
-'''
-CS.get_opacity(T, P)
+for T in temperatures:
+    for P in pressures:
+
+        if rank == 0:
+            print('T={:.0f} K | P={:6f} bar'.format(T, P))
+        CS.get_opacity(T, P, output_dir='/net/lem/data2/regt/Mn_I_opacities/')
