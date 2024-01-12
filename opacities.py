@@ -155,8 +155,9 @@ class Transitions:
         # Difference in polarizabilities
         C_H, C_H2, C_He = 1, 0.85, 0.42 # Kurucz & Furenlid (1979)
 
-        # Use the provided vdW broadening coefficients (Sharp & Burrows 2007)
         mask_gamma_vdW = (self.damping[:,2] != 0)
+
+        # Use the provided vdW broadening coefficients (Sharp & Burrows 2007)
         self.gamma_vdW[mask_gamma_vdW] = \
             1/(4*np.pi*c) * 10**self.damping[mask_gamma_vdW,2] * \
             (C_H*N_H + C_H2*N_H2 + C_He*N_He) * \
@@ -164,20 +165,28 @@ class Transitions:
 
         if self.is_alkali:
 
+            # Use the provided vdW broadening coefficients (Sharp & Burrows 2007)
+            self.gamma_vdW[mask_gamma_vdW] = \
+                1/(4*np.pi*c) * 10**self.damping[mask_gamma_vdW,2] * \
+                (mass_H/mass_p * (self.mass+mass_p)/(self.mass+mass_H) * T/10000)**(3/10) * \
+                (alpha_p/alpha_H)**(2/5) * N_tot
+            
             # Schweitzer et al. (1995) [cm^6 s^-1]
             C_6 = 1.01e-32 * alpha_p/alpha_H * (self.Z+1)**2 * \
                 ((E_H/(self.E_ion-self.E_low))**2 - (E_H/(self.E_ion-self.E_high))**2)
             C_6 = np.abs(C_6)
 
-            # Sharp & Burrows (2007) [cm^-1]
+            # Sharp & Burrows (2007) [cm^-1] 
+            # (1/N_A)^(3/10) omitted
             self.gamma_vdW[~mask_gamma_vdW] = \
-                1.664461/(2*c) * (k_B*T/N_A * (1/self.mass+1/mass_p))**(3/10) * \
-                C_6[~mask_gamma_vdW]**(2/5) * N_H2
+                1.664461/(2*c) * (k_B*T * (1/self.mass+1/mass_p))**(3/10) * \
+                C_6[~mask_gamma_vdW]**(2/5) * N_tot
 
             # Schweitzer et al. (1995)
             #self.gamma_vdW[~mask_gamma_vdW] = \
             #    17/(4*np.pi*c) * (8*k_B*T/np.pi * (1/self.mass+1/mass_p))**(3/10) * \
-            #    C_6[~mask_gamma_vdW]**(2/5) * N_H2
+            #    C_6[~mask_gamma_vdW]**(2/5) * N_tot
+
             return self.gamma_vdW
 
     def __call__(self, P, T, states):
@@ -196,11 +205,14 @@ class Transitions:
         self.gamma_L[(self.gamma_L == 0.)] = np.nan
         self.gamma_G[(self.gamma_G == 0.)] = np.nan
 
+        self.gamma_V = 0.5436*self.gamma_L + \
+            np.sqrt(0.2166*self.gamma_L**2 + self.gamma_G**2)
+
 class CrossSections:
     def __init__(
             self, states_file, transitions_file, pRT_wave_file, 
             mass, E_ion, max_nu_sep=250, max_sep_voigt=True, 
-            is_alkali=False, only_valid=True, 
+            is_alkali=False, only_valid=True, indices_to_exclude=[], 
             ):
 
         self.states = States(states_file)
@@ -208,6 +220,13 @@ class CrossSections:
             transitions_file, mass=mass, E_ion=E_ion, 
             is_alkali=is_alkali, only_valid=only_valid
             )
+        
+        self.indices_to_exclude = indices_to_exclude
+        if self.indices_to_exclude and rank == 0:
+            # List not empty
+            lines_to_exclude = 1e7/self.trans.nu_0[self.indices_to_exclude]
+            print('\nLines to exclude [nm]:')
+            print(lines_to_exclude)
 
         # Maximum wavenumber separation [cm^-1]
         self.max_nu_sep = max_nu_sep
@@ -224,9 +243,9 @@ class CrossSections:
         #if rank == 0:
         #    np.savetxt('./data/wave.dat', self.wave[:,None])
 
-    def line_cutoff_mask(self, nu_0, gamma_L=None):
-        if gamma_L is not None:
-            return np.abs(self.nu-nu_0) < self.max_nu_sep*gamma_L
+    def line_cutoff_mask(self, nu_0, gamma_V=None):
+        if gamma_V is not None:
+            return np.abs(self.nu-nu_0) < self.max_nu_sep*gamma_V
         
         return np.abs(self.nu-nu_0) < self.max_nu_sep
 
@@ -247,7 +266,7 @@ class CrossSections:
         # Get line-cutoff mask
         if self.max_sep_voigt:
             mask_nu_i = self.line_cutoff_mask(
-                nu_0_i, gamma_L=self.trans.gamma_L[idx]
+                nu_0_i, gamma_V=self.trans.gamma_V[idx]
                 )
         else:
             mask_nu_i = self.line_cutoff_mask(nu_0_i)
@@ -258,6 +277,7 @@ class CrossSections:
             nu_0_i, gamma_L=self.trans.gamma_L[idx], 
             gamma_G=self.trans.gamma_G[idx], mask_nu=mask_nu_i
             )
+        #print(1e7/self.trans.nu_0[idx], self.trans.gamma_L[idx], self.trans.gamma_G[idx])
         
         # Scale by the line-strength
         sigma_i = self.trans.S[idx] * f_i
@@ -292,6 +312,10 @@ class CrossSections:
             if i >= n_iter:
                 break
             idx = iterable[i]
+
+            if idx in self.indices_to_exclude:
+                continue
+
             sigma_per_rank += self.scaled_line_profile(idx)
 
         # Pause until all processes have finished
@@ -312,6 +336,7 @@ class CrossSections:
         # Pause until all processes have finished
         comm.Barrier()
 
+'''
 temperatures = np.array([
     81.14113604736988, 
     109.60677358237457, 
@@ -347,7 +372,14 @@ pressures = np.array([
     100.0, 
     1000.0, 
 ])
+'''
 
+#temperatures = np.array([2000])
+#pressures = np.array([1e21*k_B*temperatures[0] * 1e-6]) # n_H2 * k_B * T
+#pressures = np.array([1e19*k_B*temperatures[0] * 1e-6]) # n_H2 * k_B * T
+
+temperatures = [500, 600, 725, 1000, 1500, 2000, 2500, 3000]
+pressures    = [0.0001, 0.001, 0.01, 0.1, 1., 10., 31.6227766, 100., 316.22776602, 1000.]
 '''
 CS = CrossSections(
     states_file='./data/Fe_I_states.txt', 
@@ -357,6 +389,7 @@ CS = CrossSections(
     max_nu_separation=25
 )
 '''
+'''
 CS = CrossSections(
     states_file='./data/Mn_I_states.txt', 
     transitions_file='./data/Mn_I_transitions.txt', 
@@ -364,9 +397,19 @@ CS = CrossSections(
     mass=54.938044*amu, E_ion=59959.560, 
     max_nu_sep=250, max_sep_voigt=True, 
 )
+'''
+CS = CrossSections(
+    states_file='./data/Na_I_states.txt', 
+    transitions_file='./data/Na_I_transitions.txt', 
+    pRT_wave_file='./data/wlen_petitRADTRANS.dat', 
+    mass=22.989769*amu, E_ion=41449.451, is_alkali=True, 
+    max_nu_sep=250, max_sep_voigt=True, 
+    indices_to_exclude=[470,471]
+)
+
 for T in temperatures:
     for P in pressures:
 
         if rank == 0:
             print('T={:.0f} K | P={:6f} bar'.format(T, P))
-        CS.get_opacity(T, P, output_dir='/net/lem/data2/regt/Mn_I_opacities/')
+        CS.get_opacity(T, P, output_dir='/net/lem/data2/regt/Na_I_opacities/')
