@@ -378,8 +378,12 @@ pressures = np.array([
 #pressures = np.array([1e21*k_B*temperatures[0] * 1e-6]) # n_H2 * k_B * T
 #pressures = np.array([1e19*k_B*temperatures[0] * 1e-6]) # n_H2 * k_B * T
 
-temperatures = [500, 600, 725, 1000, 1500, 2000, 2500, 3000]
-pressures    = [0.0001, 0.001, 0.01, 0.1, 1., 10., 31.6227766, 100., 316.22776602, 1000.]
+#temperatures = [500, 600, 725, 1000, 1500, 2000, 2500, 3000]
+#pressures    = [0.0001, 0.001, 0.01, 0.1, 1., 10., 31.6227766, 100., 316.22776602, 1000.]
+
+temperatures = [1250]
+pressures    = [0.0001, 0.001, 0.01, 0.1, 1., 3.16227766, 10., 31.6227766, 100., 316.22776602, 1000.]
+
 '''
 CS = CrossSections(
     states_file='./data/Fe_I_states.txt', 
@@ -398,6 +402,7 @@ CS = CrossSections(
     max_nu_sep=250, max_sep_voigt=True, 
 )
 '''
+'''
 CS = CrossSections(
     states_file='./data/Na_I_states.txt', 
     transitions_file='./data/Na_I_transitions.txt', 
@@ -406,10 +411,20 @@ CS = CrossSections(
     max_nu_sep=250, max_sep_voigt=True, 
     indices_to_exclude=[470,471]
 )
+'''
+CS = CrossSections(
+    states_file='./data/K_I_states.txt', 
+    transitions_file='./data/K_I_transitions.txt', 
+    pRT_wave_file='./data/wlen_petitRADTRANS.dat', 
+    mass=39.0983*amu, E_ion=35009.8140, is_alkali=True, 
+    max_nu_sep=250, max_sep_voigt=True, 
+    indices_to_exclude=[1096]
+)
+mask = (1e7/CS.trans.nu_0 > 1235) & (1e7/CS.trans.nu_0 < 1260)
 
 for T in temperatures:
     for P in pressures:
 
         if rank == 0:
             print('T={:.0f} K | P={:6f} bar'.format(T, P))
-        CS.get_opacity(T, P, output_dir='/net/lem/data2/regt/Na_I_opacities/')
+        CS.get_opacity(T, P, output_dir='/net/lem/data2/regt/K_I_opacities/')
