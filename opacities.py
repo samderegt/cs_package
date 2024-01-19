@@ -69,21 +69,21 @@ class Transitions:
 
     def load_file(self, file):
 
-        d = np.genfromtxt(file, delimiter=',', dtype=float, 
+        self.d = np.genfromtxt(file, delimiter=',', dtype=float, 
             skip_header=2, usecols=(1,2,3,4,5,6), 
             invalid_raise=False
             )
         
-        self.nu_0   = d[:,0]
-        self.E_low  = d[:,1]
+        self.nu_0   = self.d[:,0]
+        self.E_low  = self.d[:,1]
         self.E_high = self.E_low + self.nu_0
         
-        self.log_gf = d[:,2]
+        self.log_gf = self.d[:,2]
         self.gf     = 10**self.log_gf
 
         # log10 Radiative, Stark and vdW-damping constants
         # [s^-1], [s^-1 cm^3], [s^-1 cm^3]
-        self.damping = d[:,3:]
+        self.damping = self.d[:,3:]
 
         # Check that all transitions have a vdW- and 
         # natural broadening coefficient
@@ -112,11 +112,12 @@ class Transitions:
 
     def oscillator_strength(self, T, Q):
 
-        term1 = (self.gf*np.pi*e**2) / (m_e*c**2) # cm^-1 / (atom cm^-2)
+        # [cm^-1 / (atom cm^-2)]
+        term1 = (self.gf*np.pi*e**2) / (m_e*c**2)
         term2 = np.exp(-c2*self.E_low/T) / Q
         term3 = (1 - np.exp(-c2*self.nu_0/T))
 
-        S = term1 * term2 * term3
+        S = term1 * term2 * term3 # [cm^1]
         return S
     
     def thermal_broadening(self, T):
@@ -160,16 +161,16 @@ class Transitions:
         # Use the provided vdW broadening coefficients (Sharp & Burrows 2007)
         self.gamma_vdW[mask_gamma_vdW] = \
             1/(4*np.pi*c) * 10**self.damping[mask_gamma_vdW,2] * \
-            (C_H*N_H + C_H2*N_H2 + C_He*N_He) * \
-            (T/10000)**(3/10)
+            (C_H*N_tot) * (T/10000)**(3/10)
+            #(C_H*N_H + C_H2*N_H2 + C_He*N_He) * \
 
         if self.is_alkali:
 
             # Use the provided vdW broadening coefficients (Sharp & Burrows 2007)
-            self.gamma_vdW[mask_gamma_vdW] = \
-                1/(4*np.pi*c) * 10**self.damping[mask_gamma_vdW,2] * \
-                (mass_H/mass_p * (self.mass+mass_p)/(self.mass+mass_H) * T/10000)**(3/10) * \
-                (alpha_p/alpha_H)**(2/5) * N_tot
+            #self.gamma_vdW[mask_gamma_vdW] = \
+            #    1/(4*np.pi*c) * 10**self.damping[mask_gamma_vdW,2] * \
+            #    (mass_H/mass_p * (self.mass+mass_p)/(self.mass+mass_H) * T/10000)**(3/10) * \
+            #    (alpha_p/alpha_H)**(2/5) * N_tot
             
             # Schweitzer et al. (1995) [cm^6 s^-1]
             C_6 = 1.01e-32 * alpha_p/alpha_H * (self.Z+1)**2 * \
@@ -178,18 +179,29 @@ class Transitions:
 
             # Sharp & Burrows (2007) [cm^-1] 
             # (1/N_A)^(3/10) omitted
-            self.gamma_vdW[~mask_gamma_vdW] = \
-                1.664461/(2*c) * (k_B*T * (1/self.mass+1/mass_p))**(3/10) * \
-                C_6[~mask_gamma_vdW]**(2/5) * N_tot
+            #self.gamma_vdW[~mask_gamma_vdW] = \
+            #    1.664461/(2*c) * (k_B*T * (1/self.mass+1/mass_p))**(3/10) * \
+            #    C_6[~mask_gamma_vdW]**(2/5) * N_tot
 
+            self.gamma_vdW = \
+                1.664461/(2*c) * (k_B*T * (1/self.mass+1/mass_p))**(3/10) * \
+                C_6**(2/5) * N_tot
+            
             # Schweitzer et al. (1995)
             #self.gamma_vdW[~mask_gamma_vdW] = \
             #    17/(4*np.pi*c) * (8*k_B*T/np.pi * (1/self.mass+1/mass_p))**(3/10) * \
             #    C_6[~mask_gamma_vdW]**(2/5) * N_tot
 
+            #self.gamma_vdW = \
+            #    17/(4*np.pi*c) * (8*k_B*T/np.pi * (1/self.mass+1/mass_p))**(3/10) * \
+            #    C_6**(2/5) * N_tot
+            
+            #self.gamma_vdW /= 10
+            #self.gamma_vdW *= 2
+
             return self.gamma_vdW
 
-    def __call__(self, P, T, states):
+    def __call__(self, P, T, states, broad_power_law=None, indices_for_power_law=None):
 
         Q = states.partition_function(T)
 
@@ -200,6 +212,19 @@ class Transitions:
         self.thermal_broadening(T)
         self.natural_broadening()
         self.vdW_broadening(P, T)
+
+        if (broad_power_law is not None) and (indices_for_power_law is not None):
+
+            # Update the impact width and shift
+            w, d = broad_power_law(P=P, T=T)
+
+            for idx in indices_for_power_law:
+                self.gamma_vdW[idx] = w # Set impact width
+                self.nu_0[idx]     += d # Apply impact shift
+
+                if rank == 0:
+                    print(1e7/self.nu_0[idx])
+
         self.gamma_L = self.gamma_vdW + self.gamma_N # [cm^-1]
 
         self.gamma_L[(self.gamma_L == 0.)] = np.nan
@@ -208,12 +233,45 @@ class Transitions:
         self.gamma_V = 0.5436*self.gamma_L + \
             np.sqrt(0.2166*self.gamma_L**2 + self.gamma_G**2)
 
+class BroadeningPowerLaw:
+    def __init__(self, broadening_file, n_ref=1e20):
+
+        # Load Nicole's table
+        self.all_T, self.all_w, self.all_d = np.loadtxt(
+            broadening_file, skiprows=2, usecols=(0,1,2), 
+            ).T
+        
+        # Reference density [cm^-3]
+        self.n_ref = n_ref
+        
+    def __call__(self, P, T):
+
+        # Number density [cm^-3]
+        n = P*1e6 / (k_B*T)
+
+        # Interpolate the impact width and shifts 
+        # onto the right temperature
+        w = np.interp(T, self.all_T, self.all_w)
+        d = np.interp(T, self.all_T, self.all_d)
+
+        # Linearly scale the parameters [cm^-1]
+        w *= n / self.n_ref
+        d *= n / self.n_ref
+
+        return w, d
+
 class CrossSections:
     def __init__(
             self, states_file, transitions_file, pRT_wave_file, 
             mass, E_ion, max_nu_sep=250, max_sep_voigt=True, 
             is_alkali=False, only_valid=True, indices_to_exclude=[], 
+            broadening_file=None, indices_for_power_law=None
             ):
+        
+        self.broad = None
+        self.indices_for_power_law = indices_for_power_law
+        if broadening_file is not None:
+            self.broad = BroadeningPowerLaw(broadening_file)
 
         self.states = States(states_file)
         self.trans  = Transitions(
@@ -260,6 +318,9 @@ class CrossSections:
     
     def scaled_line_profile(self, idx):
 
+        if idx in self.indices_to_exclude:
+            return 0*self.nu
+        
         # Wavenumber of line core
         nu_0_i = self.trans.nu_0[idx]
 
@@ -277,16 +338,27 @@ class CrossSections:
             nu_0_i, gamma_L=self.trans.gamma_L[idx], 
             gamma_G=self.trans.gamma_G[idx], mask_nu=mask_nu_i
             )
-        #print(1e7/self.trans.nu_0[idx], self.trans.gamma_L[idx], self.trans.gamma_G[idx])
         
+        b_i = 1
+        #if self.max_sep_voigt:
+        #    b_i = (2/np.pi * np.arctan2(self.max_nu_sep*self.trans.gamma_V[idx], self.trans.gamma_L[idx]))**(-1)
+        #else:
+        #    b_i = (2/np.pi * np.arctan2(self.max_nu_sep, self.trans.gamma_L[idx]))**(-1)
+
         # Scale by the line-strength
-        sigma_i = self.trans.S[idx] * f_i
+        sigma_i = b_i * self.trans.S[idx] * f_i
         return sigma_i
     
     def get_opacity(self, T, P, output_dir='./data/'):
 
+        self.trans.nu_0 = np.copy(self.trans.d[:,0])
+
         # Update the line-widths and -strengths
-        self.trans(P=P, T=T, states=self.states)
+        self.trans(
+            P=P, T=T, states=self.states, 
+            broad_power_law=self.broad, 
+            indices_for_power_law=self.indices_for_power_law
+            )
 
         # Start with zero opacity
         sigma_per_rank = np.zeros_like(self.nu)
@@ -312,9 +384,6 @@ class CrossSections:
             if i >= n_iter:
                 break
             idx = iterable[i]
-
-            if idx in self.indices_to_exclude:
-                continue
 
             sigma_per_rank += self.scaled_line_profile(idx)
 
@@ -381,8 +450,9 @@ pressures = np.array([
 #temperatures = [500, 600, 725, 1000, 1500, 2000, 2500, 3000]
 #pressures    = [0.0001, 0.001, 0.01, 0.1, 1., 10., 31.6227766, 100., 316.22776602, 1000.]
 
-temperatures = [1250]
-pressures    = [0.0001, 0.001, 0.01, 0.1, 1., 3.16227766, 10., 31.6227766, 100., 316.22776602, 1000.]
+temperatures = [500, 725, 1000, 1250, 1500, 2000, 2500, 3000]
+#pressures    = [0.0001, 0.001, 0.01, 0.1, 1., 10., 100., 1000.]
+pressures    = [0.000001, 0.00001]#, 0.0001, 0.001, 0.01, 0.1, 1., 10., 100., 1000.]
 
 '''
 CS = CrossSections(
@@ -417,10 +487,14 @@ CS = CrossSections(
     transitions_file='./data/K_I_transitions.txt', 
     pRT_wave_file='./data/wlen_petitRADTRANS.dat', 
     mass=39.0983*amu, E_ion=35009.8140, is_alkali=True, 
-    max_nu_sep=250, max_sep_voigt=True, 
-    indices_to_exclude=[1096]
+    #max_nu_sep=250, max_sep_voigt=True, 
+    #max_nu_sep=2500, max_sep_voigt=True, 
+    max_nu_sep=1000, max_sep_voigt=False, 
+    #max_nu_sep=60, max_sep_voigt=False, 
+    #indices_to_exclude=[1221,1217],
+    broadening_file='./data/param_D1_KHe_4p5s.dat', 
+    indices_for_power_law=[1096]
 )
-mask = (1e7/CS.trans.nu_0 > 1235) & (1e7/CS.trans.nu_0 < 1260)
 
 for T in temperatures:
     for P in pressures:
