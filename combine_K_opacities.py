@@ -16,7 +16,7 @@ mass_H = 1.6735575e-24 # g
 amu    = 1.66054e-24   # g
 
 def nearwing_Lorentz_junction(
-        sigma_lorentz, nu_lorentz, sigma_nearwing, nu_nearwing, nu_0, max_nu_offset=200
+        sigma_lorentz, nu_lorentz, sigma_nearwing, nu_nearwing, nu_0, max_nu_offset=60
         ):
 
     # Left- and right-side of Lorent profile
@@ -84,69 +84,91 @@ def load_table_nearwing(file):
 
     return lambda_0, n_ref, vn_norm, pirf_norm, impact_width, impact_shift
 
-#temperatures = [500, 600, 725, 1000, 1500, 2000, 2500, 3000]
-#pressures    = [0.0001, 0.001, 0.01, 0.1, 1., 10., 31.6227766, 100., 316.22776602, 1000.]
-
 #temperatures = [1250]
-#pressures    = [0.0001, 0.001, 0.01, 0.1, 1., 3.16227766, 10., 31.6227766, 100., 316.22776602, 1000.]
-pressures    = [0.0001, 0.001, 0.01, 0.1, 1., 10., 100., 1000.]
+temperatures = [500,725,1000,1250,1500,2000,2500,3000]
+#temperatures = [500,725,1000,1500,2000,2500,3000]
+pressures    = 10**np.arange(-6,3+1e-6,1)
 
 wave_pRT_grid = np.loadtxt('./data/wlen_petitRADTRANS.dat').T
 
-n_max = 1e19
-max_Voigt_sep = 250
+# Load Nicole's table
+all_T, all_w, all_d = np.loadtxt(
+    './data/param_D1_KHe_4p5s.dat', skiprows=2, usecols=(0,1,2), 
+    ).T
 
-for P in pressures:
-    for T in temperatures:
+n_max = 1e19
+#max_Voigt_sep = 250
+max_Voigt_sep = 1000
+
+from opacities import Transitions, States
+states = States('./data/K_I_states.txt')
+trans = Transitions(
+    './data/K_I_transitions.txt', mass=39.0983*amu, E_ion=35009.8140, 
+    is_alkali=True, only_valid=True
+    )
+
+for T in temperatures:
+    for i, P in enumerate(pressures):
 
         n = P / (k_B*T) * 1e6
         print('T={:.0f} K, P={:.6f} bar, n={:.2e} cm^-3'.format(T, P, n))
 
         # --- D1 line -----------------------
         lambda_0, n_ref, vn_norm, pirf_norm, impact_width, impact_shift = \
-            load_table_nearwing('/net/lem/data2/regt/K_I_opacities/tableD1_KHe_4p5s_{:.0f}_1e19.omg'.format(T))
+            load_table_nearwing('/net/lem/data2/regt/K_I_opacities_nearwing/D1/tableD1_KHe_4p5s_1250_1e19.omg')
         lambda_0 = 1243.56747315*10
 
+        n_ref = 1e20
+        impact_width = np.interp(T, all_T, all_w)
+        impact_shift = np.interp(T, all_T, all_d)
+
         nu_0 = 1e8/lambda_0
-        #n_ref = 1e22
-        #n_ref = 1e19
-
-        if n < n_max:
-            path = '/net/lem/data2/regt/K_I_opacities/D1/T{:.0f}_P{:.6f}/{}.omg'
-            nu_lorentz, sigma_lorentz   = np.loadtxt(path.format(T, P, 'lorentz_out')).T
-            nu_nearwing, sigma_nearwing = np.loadtxt(path.format(T, P, 'sigma_out')).T
-
-            nu_lorentz  += nu_0
-            nu_nearwing += nu_0
-
         nu_0 += impact_shift * n/n_ref
 
         gamma_L = impact_width * n/n_ref
         gamma_G = np.sqrt((2*k_B*T)/(39.0983*amu)) * nu_0/c
 
+        gamma_N = 10**(7.790) / (4*np.pi*c)
+        gamma_L += gamma_N
+
         if n < n_max:
+            path = '/net/lem/data2/regt/K_I_opacities_nearwing/D1/T1250_P{:.6f}/{}.omg'
+            nu_lorentz, sigma_lorentz   = np.loadtxt(path.format(P, 'lorentz_out')).T
+            nu_nearwing, sigma_nearwing = np.loadtxt(path.format(P, 'sigma_out')).T
+
+            #nu_lorentz  += nu_0
+            nu_lorentz += 1e8/lambda_0
+            #nu_nearwing += nu_0
+            nu_nearwing += 1e8/lambda_0
+
             sigma_lorentz = pirf_norm * line_profile(nu_lorentz, nu_0, gamma_L, gamma_G)
             sigma_combined_D1, nu_combined_D1 = nearwing_Lorentz_junction(
                     sigma_lorentz, nu_lorentz, sigma_nearwing, nu_nearwing, nu_0
                     )
+            
         else:
             # Use Lorentzian profile only
             nu_combined_D1 = 1/wave_pRT_grid
             gamma_V = 0.5436*gamma_L + np.sqrt(0.2166*gamma_L**2 + gamma_G**2)
 
             nu_combined_D1 = nu_combined_D1[
-                np.abs(nu_combined_D1 - nu_0) < max_Voigt_sep*gamma_V
+                #np.abs(nu_combined_D1 - nu_0) < max_Voigt_sep*gamma_V
+                np.abs(nu_combined_D1 - nu_0) < max_Voigt_sep
                 ]
             sigma_combined_D1 = pirf_norm * line_profile(nu_combined_D1, nu_0, gamma_L, gamma_G)
 
-        plt.plot(nu_combined_D1-nu_0, sigma_combined_D1)
-        plt.plot(nu_lorentz-nu_0, sigma_lorentz)
-        plt.plot(nu_nearwing-nu_0, sigma_nearwing)
-        plt.yscale('log')
-        plt.savefig(f'opacities_{P}.pdf')
-        plt.close()
+        sigma_combined_D1 = sigma_combined_D1[np.argsort(nu_combined_D1)]
+        nu_combined_D1    = nu_combined_D1[np.argsort(nu_combined_D1)]
 
-        sigma_combined_D1 *= 1e-6
+        # Normalize the line profile, so that integral equals 1
+        sigma_combined_D1 /= np.trapz(x=nu_combined_D1, y=sigma_combined_D1)
+        
+        # Scale with the integrated line intensity
+        trans(P=P, T=T, states=states)
+        sigma_combined_D1 *= trans.S[1096]
+
+        l = plt.plot(1e7/nu_combined_D1, sigma_combined_D1, alpha=0.3)
+        plt.yscale('log'); plt.ylim(1e-30,1e-14); plt.xlim(1230,1260)
 
         # Interpolate onto pRT wavelength grid
         interp_func_D1 = interp1d(
@@ -158,11 +180,20 @@ for P in pressures:
 
         # Add the other lines and save cross-sections
         _, sigma_other_lines = \
-            np.loadtxt('/net/lem/data2/regt/K_I_opacities/sigma_{:.0f}.K_{:.6f}bar.dat'.format(T,P)).T
+            np.loadtxt('/net/lem/data2/regt/K_I_opacities_nearwing/sigma_{:.0f}.K_{:.6f}bar.dat'.format(T,P)).T
         
-        #sigma_tot = sigma_other_lines + sigma_combined_D1D2
-        sigma_tot = sigma_other_lines
+        sigma_tot = sigma_other_lines + sigma_combined_D1D2
+
+        plt.plot(wave_pRT_grid*1e7, sigma_tot, c=l[0].get_color())
+        #plt.plot(wave_pRT_grid*1e7, sigma_combined_D1D2)
+        plt.plot(wave_pRT_grid*1e7, sigma_other_lines, c=l[0].get_color(), alpha=0.3)
+    
         np.savetxt(
-            '/net/lem/data2/regt/K_I_opacities_tot/sigma_{:.0f}.K_{:.6f}bar.dat'.format(T,P), 
+            '/net/lem/data2/regt/K_I_opacities_nearwing/D1/sigma_{:.0f}.K_{:.6f}bar.dat'.format(T,P), 
             np.column_stack((wave_pRT_grid, sigma_tot))
             )
+    
+    plt.axvline(lambda_0/10, linewidth=1, alpha=0.5, color='k')
+    #plt.yscale('log'); plt.xlim(1237,1259); plt.ylim(1e-28,1e-15)
+    plt.savefig('opacities_{:.0f}.pdf'.format(T))
+    plt.close()

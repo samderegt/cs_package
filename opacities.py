@@ -18,7 +18,7 @@ k_B    = 1.3807e-16    # cm^2 g s^-2 K^-1
 c      = 2.99792458e10 # cm s^-1
 N_A    = 6.02214076e23 # mol^-1
 mass_H = 1.6735575e-24 # g
-amu    = 1.66054e-24
+amu    = 1.66054e-24   # g
 
 class States:
     def __init__(self, NIST_tsv_file):
@@ -34,7 +34,7 @@ class States:
 
             if g_i == '""':
                 continue
-            g.append(int(g_i))
+            g.append(float(g_i))
             E.append(float(E_i.replace('"', '')))
         
         self.g = np.array(g)
@@ -123,12 +123,13 @@ class Transitions:
     def thermal_broadening(self, T):
         # Gandhi et al. (2020b) [cm^-1]
         self.gamma_G = np.sqrt((2*k_B*T)/self.mass) * self.nu_0/c
+        #self.gamma_G = np.sqrt((2*k_B*T)/(2*amu)) * self.nu_0/c
         return self.gamma_G
     
     def natural_broadening(self):
 
         # Gandhi et al. (2020b) [cm^-1]
-        self.gamma_N = 0.22e-2 * self.nu_0/(4*np.pi*c)
+        self.gamma_N = 0.22e-2 * self.nu_0**2/(4*np.pi*c)
 
         # Use the provided natural broadening coefficient
         mask_gamma_N = (self.damping[:,0] != 0)
@@ -159,10 +160,10 @@ class Transitions:
         mask_gamma_vdW = (self.damping[:,2] != 0)
 
         # Use the provided vdW broadening coefficients (Sharp & Burrows 2007)
-        self.gamma_vdW[mask_gamma_vdW] = \
-            1/(4*np.pi*c) * 10**self.damping[mask_gamma_vdW,2] * \
-            (C_H*N_tot) * (T/10000)**(3/10)
-            #(C_H*N_H + C_H2*N_H2 + C_He*N_He) * \
+        #self.gamma_vdW[mask_gamma_vdW] = \
+        #    1/(4*np.pi*c) * 10**self.damping[mask_gamma_vdW,2] * \
+        #    (C_H*N_tot) * (T/10000)**(3/10)
+        #    #(C_H*N_H + C_H2*N_H2 + C_He*N_He) * \
 
         if self.is_alkali:
 
@@ -171,7 +172,7 @@ class Transitions:
             #    1/(4*np.pi*c) * 10**self.damping[mask_gamma_vdW,2] * \
             #    (mass_H/mass_p * (self.mass+mass_p)/(self.mass+mass_H) * T/10000)**(3/10) * \
             #    (alpha_p/alpha_H)**(2/5) * N_tot
-            
+                        
             # Schweitzer et al. (1995) [cm^6 s^-1]
             C_6 = 1.01e-32 * alpha_p/alpha_H * (self.Z+1)**2 * \
                 ((E_H/(self.E_ion-self.E_low))**2 - (E_H/(self.E_ion-self.E_high))**2)
@@ -182,28 +183,30 @@ class Transitions:
             #self.gamma_vdW[~mask_gamma_vdW] = \
             #    1.664461/(2*c) * (k_B*T * (1/self.mass+1/mass_p))**(3/10) * \
             #    C_6[~mask_gamma_vdW]**(2/5) * N_tot
-
+            
             self.gamma_vdW = \
                 1.664461/(2*c) * (k_B*T * (1/self.mass+1/mass_p))**(3/10) * \
                 C_6**(2/5) * N_tot
-            
+                        
             # Schweitzer et al. (1995)
             #self.gamma_vdW[~mask_gamma_vdW] = \
             #    17/(4*np.pi*c) * (8*k_B*T/np.pi * (1/self.mass+1/mass_p))**(3/10) * \
             #    C_6[~mask_gamma_vdW]**(2/5) * N_tot
-
+            
             #self.gamma_vdW = \
             #    17/(4*np.pi*c) * (8*k_B*T/np.pi * (1/self.mass+1/mass_p))**(3/10) * \
             #    C_6**(2/5) * N_tot
-            
             #self.gamma_vdW /= 10
-            #self.gamma_vdW *= 2
+
+            #self.gamma_vdW /= 10
 
             return self.gamma_vdW
 
     def __call__(self, P, T, states, broad_power_law=None, indices_for_power_law=None):
 
         Q = states.partition_function(T)
+        if rank == 0:
+            print('Q =', Q)
 
         # Compute the line strength
         self.S = self.oscillator_strength(T, Q)
@@ -213,17 +216,21 @@ class Transitions:
         self.natural_broadening()
         self.vdW_broadening(P, T)
 
+        ######
+        #self.gamma_N = np.zeros_like(self.gamma_N)
+        ######
+
         if (broad_power_law is not None) and (indices_for_power_law is not None):
 
             # Update the impact width and shift
             w, d = broad_power_law(P=P, T=T)
 
-            for idx in indices_for_power_law:
-                self.gamma_vdW[idx] = w # Set impact width
-                self.nu_0[idx]     += d # Apply impact shift
+            for i, idx in enumerate(indices_for_power_law):
+                self.gamma_vdW[idx] = w[i] # Set impact width
+                self.nu_0[idx]     += d[i] # Apply impact shift
 
                 if rank == 0:
-                    print(1e7/self.nu_0[idx])
+                    print(1e7/self.nu_0[idx], self.gamma_vdW[idx], self.gamma_N[idx])
 
         self.gamma_L = self.gamma_vdW + self.gamma_N # [cm^-1]
 
@@ -234,12 +241,15 @@ class Transitions:
             np.sqrt(0.2166*self.gamma_L**2 + self.gamma_G**2)
 
 class BroadeningPowerLaw:
-    def __init__(self, broadening_file, n_ref=1e20):
+    def __init__(self, A_w, b_w, A_d, b_d, n_ref=1e20):
 
-        # Load Nicole's table
-        self.all_T, self.all_w, self.all_d = np.loadtxt(
-            broadening_file, skiprows=2, usecols=(0,1,2), 
-            ).T
+        # Parameters for impact width
+        self.A_w = np.array(A_w)
+        self.b_w = np.array(b_w)
+
+        # Parameters for impact shift
+        self.A_d = np.array(A_d)
+        self.b_d = np.array(b_d)
         
         # Reference density [cm^-3]
         self.n_ref = n_ref
@@ -249,13 +259,12 @@ class BroadeningPowerLaw:
         # Number density [cm^-3]
         n = P*1e6 / (k_B*T)
 
-        # Interpolate the impact width and shifts 
-        # onto the right temperature
-        w = np.interp(T, self.all_T, self.all_w)
-        d = np.interp(T, self.all_T, self.all_d)
-
-        # Linearly scale the parameters [cm^-1]
+        # Scale the impact width with (P,T)
+        w = self.A_w * T**self.b_w
         w *= n / self.n_ref
+
+        # Scale the impact shift with (P,T)
+        d = self.A_d * T**self.b_d
         d *= n / self.n_ref
 
         return w, d
@@ -265,13 +274,16 @@ class CrossSections:
             self, states_file, transitions_file, pRT_wave_file, 
             mass, E_ion, max_nu_sep=250, max_sep_voigt=True, 
             is_alkali=False, only_valid=True, indices_to_exclude=[], 
-            broadening_file=None, indices_for_power_law=None
+            A_w=None, b_w=None, A_d=None, b_d=None, 
+            indices_for_power_law=None
             ):
         
         self.broad = None
         self.indices_for_power_law = indices_for_power_law
-        if broadening_file is not None:
-            self.broad = BroadeningPowerLaw(broadening_file)
+        if A_w is not None:
+            self.broad = BroadeningPowerLaw(
+                A_w=A_w, b_w=b_w, A_d=A_d, b_d=b_d
+                )
 
         self.states = States(states_file)
         self.trans  = Transitions(
@@ -344,6 +356,7 @@ class CrossSections:
         #    b_i = (2/np.pi * np.arctan2(self.max_nu_sep*self.trans.gamma_V[idx], self.trans.gamma_L[idx]))**(-1)
         #else:
         #    b_i = (2/np.pi * np.arctan2(self.max_nu_sep, self.trans.gamma_L[idx]))**(-1)
+        #b_i = (2/np.pi * np.arctan2(self.max_nu_sep, self.trans.gamma_L[idx]))**(-1)
 
         # Scale by the line-strength
         sigma_i = b_i * self.trans.S[idx] * f_i
@@ -405,100 +418,107 @@ class CrossSections:
         # Pause until all processes have finished
         comm.Barrier()
 
-'''
-temperatures = np.array([
-    81.14113604736988, 
-    109.60677358237457, 
-    148.05862230132453, 
-    200., 
-    270.163273706, 
-    364.940972297, 
-    492.968238926, 
-    665.909566306, 
-    899.521542126, 
-    1215.08842295, 
-    1641.36133093, 
-    2000., 
-    2217.17775249, 
-    2500., 
-    2750., 
-    2995., 
-    3250., 
-    3500., 
-    3750., 
-    4000., 
-])
+if __name__ == '__main__':
 
-pressures = np.array([
-    0.000001, 
-    0.00001, 
-    0.0001, 
-    0.001, 
-    0.01, 
-    0.1, 
-    1.0, 
-    10.0, 
-    100.0, 
-    1000.0, 
-])
-'''
+    temperatures = np.array([
+        81.14113604736988, 
+        109.60677358237457, 
+        148.05862230132453, 
+        200., 
+        270.163273706, 
+        364.940972297, 
+        492.968238926, 
+        665.909566306, 
+        899.521542126, 
+        1215.08842295, 
+        1641.36133093, 
+        #2000., 
+        2217.17775249, 
+        #2500., 
+        #2750., 
+        2995., 
+        #3250., 
+        #3500., 
+        #3750., 
+        #4000., 
+    ])
+    '''
+    temperatures = np.array([
+        #500, 
+        #600, 
+        #725, 
+        1000, 
+        ##1250, 
+        #1500, 
+        #2000, 
+        #2500, 
+        #3000
+    ])
+    '''
 
-#temperatures = np.array([2000])
-#pressures = np.array([1e21*k_B*temperatures[0] * 1e-6]) # n_H2 * k_B * T
-#pressures = np.array([1e19*k_B*temperatures[0] * 1e-6]) # n_H2 * k_B * T
+    pressures = np.array([
+        0.000001, 
+        0.00001, 
+        0.0001, 
+        0.001, 
+        0.01, 
+        0.1, 
+        1.0, 
+        10.0, 
+        100.0, 
+        1000.0, 
+    ])
 
-#temperatures = [500, 600, 725, 1000, 1500, 2000, 2500, 3000]
-#pressures    = [0.0001, 0.001, 0.01, 0.1, 1., 10., 31.6227766, 100., 316.22776602, 1000.]
+    '''
+    CS = CrossSections(
+        states_file='./data/Fe_I_states.txt', 
+        transitions_file='./data/Fe_I_transitions.txt', 
+        pRT_wave_file='./data/wlen_petitRADTRANS.dat', 
+        mass=55.845*amu, E_ion=63737.704, 
+        max_nu_separation=25
+    )
 
-temperatures = [500, 725, 1000, 1250, 1500, 2000, 2500, 3000]
-#pressures    = [0.0001, 0.001, 0.01, 0.1, 1., 10., 100., 1000.]
-pressures    = [0.000001, 0.00001]#, 0.0001, 0.001, 0.01, 0.1, 1., 10., 100., 1000.]
+    CS = CrossSections(
+        states_file='./data/Mn_I_states.txt', 
+        transitions_file='./data/Mn_I_transitions.txt', 
+        pRT_wave_file='./data/wlen_petitRADTRANS.dat', 
+        mass=54.938044*amu, E_ion=59959.560, 
+        max_nu_sep=250, max_sep_voigt=True, 
+    )
 
-'''
-CS = CrossSections(
-    states_file='./data/Fe_I_states.txt', 
-    transitions_file='./data/Fe_I_transitions.txt', 
-    pRT_wave_file='./data/wlen_petitRADTRANS.dat', 
-    mass=55.845*amu, E_ion=63737.704, 
-    max_nu_separation=25
-)
-'''
-'''
-CS = CrossSections(
-    states_file='./data/Mn_I_states.txt', 
-    transitions_file='./data/Mn_I_transitions.txt', 
-    pRT_wave_file='./data/wlen_petitRADTRANS.dat', 
-    mass=54.938044*amu, E_ion=59959.560, 
-    max_nu_sep=250, max_sep_voigt=True, 
-)
-'''
-'''
-CS = CrossSections(
-    states_file='./data/Na_I_states.txt', 
-    transitions_file='./data/Na_I_transitions.txt', 
-    pRT_wave_file='./data/wlen_petitRADTRANS.dat', 
-    mass=22.989769*amu, E_ion=41449.451, is_alkali=True, 
-    max_nu_sep=250, max_sep_voigt=True, 
-    indices_to_exclude=[470,471]
-)
-'''
-CS = CrossSections(
-    states_file='./data/K_I_states.txt', 
-    transitions_file='./data/K_I_transitions.txt', 
-    pRT_wave_file='./data/wlen_petitRADTRANS.dat', 
-    mass=39.0983*amu, E_ion=35009.8140, is_alkali=True, 
-    #max_nu_sep=250, max_sep_voigt=True, 
-    #max_nu_sep=2500, max_sep_voigt=True, 
-    max_nu_sep=1000, max_sep_voigt=False, 
-    #max_nu_sep=60, max_sep_voigt=False, 
-    #indices_to_exclude=[1221,1217],
-    broadening_file='./data/param_D1_KHe_4p5s.dat', 
-    indices_for_power_law=[1096]
-)
+    CS = CrossSections(
+        states_file='./data/Na_I_states.txt', 
+        transitions_file='./data/Na_I_transitions.txt', 
+        pRT_wave_file='./data/wlen_petitRADTRANS.dat', 
+        mass=22.989769*amu, E_ion=41449.451, is_alkali=True, 
+        #mass=23*amu, E_ion=41449.451, is_alkali=True, 
+        #mass=23*amu, E_ion=41449.451, is_alkali=True, 
+        #max_nu_sep=250, max_sep_voigt=True, 
+        max_nu_sep=4500, max_sep_voigt=False, 
+        #indices_to_exclude=[470,471]
+    )
+    '''
 
-for T in temperatures:
-    for P in pressures:
+    CS = CrossSections(
+        states_file='./data/K_I_states.txt', 
+        transitions_file='./data/K_I_transitions.txt', 
+        pRT_wave_file='./data/wlen_petitRADTRANS.dat', 
+        mass=39.0983*amu, E_ion=35009.8140, is_alkali=True, 
+        max_nu_sep=4500, max_sep_voigt=False, 
+        #broadening_file='./data/param_D1_KHe_4p5s.dat', 
+        indices_for_power_law=[1095,1096], 
+        A_w=[0.20819,0.121448], b_w=[0.452833,0.531718], 
+        A_d=[0.00194382,0.000462539], b_d=[0.89691,1.07284], 
+        #indices_to_exclude=[1096],
+    )
+    #import sys; sys.exit()
 
-        if rank == 0:
-            print('T={:.0f} K | P={:6f} bar'.format(T, P))
-        CS.get_opacity(T, P, output_dir='/net/lem/data2/regt/K_I_opacities/')
+    for T in temperatures:
+        for P in pressures:
+            if rank == 0:
+                print('T={:.0f} K | P={:6f} bar'.format(T, P))
+                
+            #CS.get_opacity(T, P, output_dir='/net/lem/data2/regt/Mn_I_opacities/')
+            #CS.get_opacity(T, P, output_dir='/net/lem/data2/regt/K_I_opacities_wo_natural_broadening/')
+            #CS.get_opacity(T, P, output_dir='/net/lem/data2/regt/Na_I_opacities_wo_asymmetry/')
+            CS.get_opacity(T, P, output_dir='/net/lem/data2/regt/K_I_opacities_shift/')

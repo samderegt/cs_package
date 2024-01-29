@@ -85,12 +85,22 @@ def load_table_nearwing(file):
     return lambda_0, n_ref, vn_norm, pirf_norm, impact_width, impact_shift
 
 temperatures = [500, 600, 725, 1000, 1500, 2000, 2500, 3000]
-pressures    = [0.0001, 0.001, 0.01, 0.1, 1., 10., 31.6227766, 100., 316.22776602, 1000.]
+pressures    = 10**np.arange(-6,3+1e-6,1)
+#temperatures = [3000]
+#pressures    = [1e-6]
 
 wave_pRT_grid = np.loadtxt('./data/wlen_petitRADTRANS.dat').T
 
 n_max = 1e21
-max_Voigt_sep = 250
+max_Voigt_sep = 1000
+
+from opacities import Transitions, States
+states = States('./data/Na_I_states.txt')
+trans = Transitions(
+    './data/Na_I_transitions.txt', 
+    mass=22.989769*amu, E_ion=41449.451, 
+    is_alkali=True, only_valid=True
+    )
 
 for P in pressures:
     for T in temperatures:
@@ -100,9 +110,9 @@ for P in pressures:
 
         # --- D1 resonance line -----------------------
         lambda_0, n_ref, vn_norm, pirf_norm, impact_width, impact_shift = \
-            load_table_nearwing(f'/net/lem/data2/regt/Na_I_opacities/TABLES_D1_NaH2_2017/T{T}/table_nearwing_{T}.omg')
+            load_table_nearwing(f'/net/lem/data2/regt/Na_I_opacities_new/TABLES_D1_NaH2_2017/T{T}/table_nearwing_{T}.omg')
 
-        path = '/net/lem/data2/regt/Na_I_opacities/D1/T{:.0f}_P{:.6f}/{}.omg'
+        path = '/net/lem/data2/regt/Na_I_opacities_new/D1/T{:.0f}_P{:.6f}/{}.omg'
         nu_lorentz, sigma_lorentz   = np.loadtxt(path.format(T, P, 'lorentz_out')).T
         nu_nearwing, sigma_nearwing = np.loadtxt(path.format(T, P, 'sigma_out')).T
         nu_redwing, sigma_redwing   = np.loadtxt(glob.glob(path.format(T, P, 'redwing*'))[0]).T
@@ -117,6 +127,9 @@ for P in pressures:
         gamma_L = impact_width * n/n_ref
         gamma_G = np.sqrt((2*k_B*T)/(22.989769*amu)) * nu_0/c
 
+        #gamma_N = 10**(7.799) / (4*np.pi*c)
+        #gamma_L += gamma_N
+
         sigma_lorentz = pirf_norm * line_profile(nu_lorentz, nu_0, gamma_L, gamma_G)
         sigma_combined, nu_combined = nearwing_Lorentz_junction(
                 sigma_lorentz, nu_lorentz, sigma_nearwing, nu_nearwing, nu_0
@@ -130,15 +143,25 @@ for P in pressures:
             gamma_V = 0.5436*gamma_L + np.sqrt(0.2166*gamma_L**2 + gamma_G**2)
 
             nu_combined_D1 = nu_combined_D1[
-                np.abs(nu_combined_D1 - nu_0) < max_Voigt_sep*gamma_V
+                #np.abs(nu_combined_D1 - nu_0) < max_Voigt_sep*gamma_V
+                np.abs(nu_combined_D1 - nu_0) < max_Voigt_sep
                 ]
             sigma_combined_D1 = pirf_norm * line_profile(nu_combined_D1, nu_0, gamma_L, gamma_G)
 
+        # Normalize the line profile, so that integral equals 1
+        sigma_combined_D1 = sigma_combined_D1[np.argsort(nu_combined_D1)]
+        nu_combined_D1    = nu_combined_D1[np.argsort(nu_combined_D1)]
+        sigma_combined_D1 /= np.trapz(x=nu_combined_D1, y=sigma_combined_D1)
+        
+        # Scale with the integrated line intensity
+        trans(P=P, T=T, states=states)
+        sigma_combined_D1 *= trans.S[471]
+
         # --- D2 resonance line -----------------------
         lambda_0, n_ref, vn_norm, pirf_norm, impact_width, impact_shift = \
-            load_table_nearwing(f'/net/lem/data2/regt/Na_I_opacities/TABLES_D2_NaH2_2017/tableD2_NaH2_{T}_1e21_FS17.omg')
+            load_table_nearwing(f'/net/lem/data2/regt/Na_I_opacities_new/TABLES_D2_NaH2_2017/tableD2_NaH2_{T}_1e21_FS17.omg')
 
-        path = '/net/lem/data2/regt/Na_I_opacities/D2/T{:.0f}_P{:.6f}/{}.omg'
+        path = '/net/lem/data2/regt/Na_I_opacities_new/D2/T{:.0f}_P{:.6f}/{}.omg'
         nu_lorentz, sigma_lorentz   = np.loadtxt(path.format(T, P, 'lorentz_out')).T
         nu_nearwing, sigma_nearwing = np.loadtxt(path.format(T, P, 'sigma_out')).T
 
@@ -151,6 +174,9 @@ for P in pressures:
         gamma_L = impact_width * n/n_ref
         gamma_G = np.sqrt((2*k_B*T)/(22.989769*amu)) * nu_0/c
 
+        #gamma_N = 10**(7.798) / (4*np.pi*c)
+        #gamma_L += gamma_N
+
         sigma_lorentz = pirf_norm * line_profile(nu_lorentz, nu_0, gamma_L, gamma_G)
         sigma_combined_D2, nu_combined_D2 = nearwing_Lorentz_junction(
                 sigma_lorentz, nu_lorentz, sigma_nearwing, nu_nearwing, nu_0
@@ -161,10 +187,21 @@ for P in pressures:
             gamma_V = 0.5436*gamma_L + np.sqrt(0.2166*gamma_L**2 + gamma_G**2)
 
             nu_combined_D2 = nu_combined_D2[
-                np.abs(nu_combined_D2 - nu_0) < max_Voigt_sep*gamma_V
+                #np.abs(nu_combined_D2 - nu_0) < max_Voigt_sep*gamma_V
+                np.abs(nu_combined_D2 - nu_0) < max_Voigt_sep
                 ]
             sigma_combined_D2 = pirf_norm * line_profile(nu_combined_D2, nu_0, gamma_L, gamma_G)
 
+        # Normalize the line profile, so that integral equals 1
+        sigma_combined_D2 = sigma_combined_D2[np.argsort(nu_combined_D2)]
+        nu_combined_D2    = nu_combined_D2[np.argsort(nu_combined_D2)]
+        sigma_combined_D2 /= np.trapz(x=nu_combined_D2, y=sigma_combined_D2)
+        
+        # Scale with the integrated line intensity
+        trans(P=P, T=T, states=states)
+        sigma_combined_D2 *= trans.S[470]
+
+        # -----------------------------------------
         # Interpolate onto pRT wavelength grid
         interp_func_D1 = interp1d(
             1e7/nu_combined_D1, sigma_combined_D1, 
@@ -180,16 +217,11 @@ for P in pressures:
 
         # Add the other lines and save cross-sections
         _, sigma_other_lines = \
-            np.loadtxt('/net/lem/data2/regt/Na_I_opacities/sigma_{:.0f}.K_{:.6f}bar.dat'.format(T,P)).T
-        
-        sigma_tot = sigma_other_lines + sigma_combined_D1D2
-        np.savetxt(
-            '/net/lem/data2/regt/Na_I_opacities_tot/sigma_{:.0f}.K_{:.6f}bar.dat'.format(T,P), 
-            np.column_stack((wave_pRT_grid, sigma_tot))
-            )
+            np.loadtxt('/net/lem/data2/regt/Na_I_opacities_new/opacities_wo_doublet/sigma_{:.0f}.K_{:.6f}bar.dat'.format(T,P)).T
         
         # Save wavelength and cross-section
-        #np.savetxt(
-        #    './D1D2/T{:.0f}_P{:.6f}.dat'.format(T, P), 
-        #    np.column_stack((wave_pRT_grid, sigma_combined_D1D2))
-        #    )
+        sigma_tot = sigma_other_lines + sigma_combined_D1D2
+        np.savetxt(
+            '/net/lem/data2/regt/Na_I_opacities_new/sigma_{:.0f}.K_{:.6f}bar.dat'.format(T,P), 
+            np.column_stack((wave_pRT_grid, sigma_tot))
+            )
