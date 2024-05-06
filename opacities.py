@@ -85,10 +85,12 @@ class Transitions:
         # [s^-1], [s^-1 cm^3], [s^-1 cm^3]
         self.damping = self.d[:,3:]
 
+        # Make a copy of the initial wavenumbers
+        self.nu_0_init = np.copy(self.nu_0)
+
         # Check that all transitions have a vdW- and 
         # natural broadening coefficient
-        mask_valid = \
-            (self.damping[:,0]!=0) & (self.damping[:,2]!=0)
+        mask_valid = (self.damping[:,0]!=0) & (self.damping[:,2]!=0)
         
         if self.is_alkali:
             # Broadening coefficients are derived for alkalis
@@ -104,6 +106,9 @@ class Transitions:
             self.gf     = self.gf[mask_valid]
 
             self.damping = self.damping[mask_valid,:]
+
+            self.nu_0_init = self.nu_0_init[mask_valid]
+
             if rank == 0:
                 print(f'\nRemoved {(~mask_valid).sum()} of {len(mask_valid)} transitions with missing damping constants')
             return
@@ -129,7 +134,8 @@ class Transitions:
     def natural_broadening(self):
 
         # Gandhi et al. (2020b) [cm^-1]
-        self.gamma_N = 0.22e-2 * self.nu_0**2/(4*np.pi*c)
+        #self.gamma_N =  0.22e-2 * self.nu_0**2/(4*np.pi*c)
+        self.gamma_N =  0.22 * self.nu_0**2/(4*np.pi*c)
 
         # Use the provided natural broadening coefficient
         mask_gamma_N = (self.damping[:,0] != 0)
@@ -160,10 +166,10 @@ class Transitions:
         mask_gamma_vdW = (self.damping[:,2] != 0)
 
         # Use the provided vdW broadening coefficients (Sharp & Burrows 2007)
-        #self.gamma_vdW[mask_gamma_vdW] = \
-        #    1/(4*np.pi*c) * 10**self.damping[mask_gamma_vdW,2] * \
-        #    (C_H*N_tot) * (T/10000)**(3/10)
-        #    #(C_H*N_H + C_H2*N_H2 + C_He*N_He) * \
+        self.gamma_vdW[mask_gamma_vdW] = \
+            1/(4*np.pi*c) * 10**self.damping[mask_gamma_vdW,2] * \
+            (C_H*N_tot) * (T/10000)**(3/10)
+            #(C_H*N_H + C_H2*N_H2 + C_He*N_He) * \
 
         if self.is_alkali:
 
@@ -306,9 +312,10 @@ class CrossSections:
         # Wavelength / wavenumber grid
         self.wave = np.loadtxt(pRT_wave_file) * 1e7 # [nm]
         
-        self.mask_wave_range = (self.wave>300) & (self.wave<28000) # High-res. wavelengths
-        #self.wave = self.wave[self.mask_wave_range]
-        self.nu = 1e7 / self.wave[self.mask_wave_range] # [cm^-1]
+        #self.mask_wave_range = (self.wave>300) & (self.wave<28000) # High-res. wavelengths
+        ##self.wave = self.wave[self.mask_wave_range]
+        #self.nu = 1e7 / self.wave[self.mask_wave_range] # [cm^-1]
+        self.nu = 1e7 / self.wave # [cm^-1]
 
         #if rank == 0:
         #    np.savetxt('./data/wave.dat', self.wave[:,None])
@@ -364,7 +371,7 @@ class CrossSections:
     
     def get_opacity(self, T, P, output_dir='./data/'):
 
-        self.trans.nu_0 = np.copy(self.trans.d[:,0])
+        self.trans.nu_0 = np.copy(self.trans.nu_0_init)
 
         # Update the line-widths and -strengths
         self.trans(
@@ -407,8 +414,9 @@ class CrossSections:
         sigma_wave_range = comm.reduce(sigma_per_rank, op=MPI.SUM, root=0)
         
         if rank == 0:
-            sigma = np.ones_like(self.wave)*1e-250
-            sigma[self.mask_wave_range] = sigma_wave_range
+            #sigma = np.ones_like(self.wave)*1e-250
+            #sigma[self.mask_wave_range] = sigma_wave_range
+            sigma = sigma_wave_range
 
             np.savetxt(
                 '{}/sigma_{:.0f}.K_{:6f}bar.dat'.format(output_dir, T, P), 
@@ -420,6 +428,7 @@ class CrossSections:
 
 if __name__ == '__main__':
 
+    #'''
     temperatures = np.array([
         81.14113604736988, 
         109.60677358237457, 
@@ -432,29 +441,31 @@ if __name__ == '__main__':
         899.521542126, 
         1215.08842295, 
         1641.36133093, 
-        #2000., 
         2217.17775249, 
+        2995., 
+
+        #2000., 
         #2500., 
         #2750., 
-        2995., 
         #3250., 
         #3500., 
         #3750., 
         #4000., 
     ])
+    #'''
     '''
     temperatures = np.array([
-        #500, 
-        #600, 
-        #725, 
+        500, 
+        600, 
+        725, 
         1000, 
-        ##1250, 
-        #1500, 
-        #2000, 
-        #2500, 
-        #3000
+        #1250, 
+        1500, 
+        2000, 
+        2500, 
+        3000
     ])
-    '''
+    #'''
 
     pressures = np.array([
         0.000001, 
@@ -471,22 +482,6 @@ if __name__ == '__main__':
 
     '''
     CS = CrossSections(
-        states_file='./data/Fe_I_states.txt', 
-        transitions_file='./data/Fe_I_transitions.txt', 
-        pRT_wave_file='./data/wlen_petitRADTRANS.dat', 
-        mass=55.845*amu, E_ion=63737.704, 
-        max_nu_separation=25
-    )
-
-    CS = CrossSections(
-        states_file='./data/Mn_I_states.txt', 
-        transitions_file='./data/Mn_I_transitions.txt', 
-        pRT_wave_file='./data/wlen_petitRADTRANS.dat', 
-        mass=54.938044*amu, E_ion=59959.560, 
-        max_nu_sep=250, max_sep_voigt=True, 
-    )
-
-    CS = CrossSections(
         states_file='./data/Na_I_states.txt', 
         transitions_file='./data/Na_I_transitions.txt', 
         pRT_wave_file='./data/wlen_petitRADTRANS.dat', 
@@ -495,10 +490,20 @@ if __name__ == '__main__':
         #mass=23*amu, E_ion=41449.451, is_alkali=True, 
         #max_nu_sep=250, max_sep_voigt=True, 
         max_nu_sep=4500, max_sep_voigt=False, 
-        #indices_to_exclude=[470,471]
+        indices_to_exclude=[470,471]
+    )
+    
+    CS = CrossSections(
+        states_file='./data/Mn_I_states.txt', 
+        transitions_file='./data/Mn_I_transitions.txt', 
+        pRT_wave_file='./data/wlen_petitRADTRANS.dat', 
+        mass=54.938044*amu, E_ion=59959.560, 
+        max_nu_sep=250, max_sep_voigt=False, 
+        only_valid=True
     )
     '''
 
+    '''
     CS = CrossSections(
         states_file='./data/K_I_states.txt', 
         transitions_file='./data/K_I_transitions.txt', 
@@ -506,19 +511,39 @@ if __name__ == '__main__':
         mass=39.0983*amu, E_ion=35009.8140, is_alkali=True, 
         max_nu_sep=4500, max_sep_voigt=False, 
         #broadening_file='./data/param_D1_KHe_4p5s.dat', 
-        indices_for_power_law=[1095,1096], 
-        A_w=[0.20819,0.121448], b_w=[0.452833,0.531718], 
-        A_d=[0.00194382,0.000462539], b_d=[0.89691,1.07284], 
+
+        indices_for_power_law=[1095,1096], # K-H2
+        A_w=[0.352609,0.245926], b_w=[0.385961,0.447971], 
+        A_d=[0.00158988,0.00211668], b_d=[0.949254,0.933563], 
+
+        #indices_for_power_law=[1095,1096], # K-He
+        #A_w=[0.20819,0.121448], b_w=[0.452833,0.531718], 
+        #A_d=[0.00194382,0.000462539], b_d=[0.89691,1.07284], 
+        
+        #indices_for_power_law=[1095], 
+        #A_w=[0.20819], b_w=[0.452833], 
+        #A_d=[0.00194382], b_d=[0.89691], 
         #indices_to_exclude=[1096],
     )
-    #import sys; sys.exit()
+    '''
+    
+    CS = CrossSections(
+        states_file='./data/Na_I_states.txt', 
+        #transitions_file='./data/Na_I_transitions_lbl.txt', indices_to_exclude=[470,471], 
+        pRT_wave_file='./data/wlen_petitRADTRANS.dat', 
+        mass=22.989769*amu, E_ion=41449.451, is_alkali=True, 
+        max_nu_sep=4500, max_sep_voigt=False, 
+        transitions_file='./data/Na_I_transitions_ck.txt', indices_to_exclude=[499,500], 
+    )
 
     for T in temperatures:
         for P in pressures:
             if rank == 0:
                 print('T={:.0f} K | P={:6f} bar'.format(T, P))
-                
+
             #CS.get_opacity(T, P, output_dir='/net/lem/data2/regt/Mn_I_opacities/')
-            #CS.get_opacity(T, P, output_dir='/net/lem/data2/regt/K_I_opacities_wo_natural_broadening/')
+            #CS.get_opacity(T, P, output_dir='/net/lem/data2/regt/K_I_opacities_shift/')
+            #CS.get_opacity(T, P, output_dir='/net/lem/data2/regt/K_I_opacities_shift_H2/')
+            #CS.get_opacity(T, P, output_dir='/net/lem/data2/regt/Na_I_opacities_recomputed/opacities_wo_doublet/')
+            CS.get_opacity(T, P, output_dir='/net/lem/data2/regt/Na_I_recomputed_3/wo_doublet/')
             #CS.get_opacity(T, P, output_dir='/net/lem/data2/regt/Na_I_opacities_wo_asymmetry/')
-            CS.get_opacity(T, P, output_dir='/net/lem/data2/regt/K_I_opacities_shift/')
