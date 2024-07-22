@@ -102,10 +102,12 @@ temperatures_fine = np.array([
     2995., 
 ])
 pressures = 10**np.arange(-6,3+1e-6,1)
+#pressures = 10**np.array([0])
 
 wave_pRT_grid = np.loadtxt('./data/wlen_petitRADTRANS.dat').T
 
-path_base = '/net/lem/data2/regt/Na_I_opacities_recomputed_pRT_grid/'
+#path_base = '/net/lem/data2/regt/Na_I_opacities_recomputed_pRT_grid/'
+path_base = '/net/lem/data2/regt/Na_I_recomputed_3/'
 path_table_D1 = path_base + 'TABLES_D1_NaH2_2017/T{:.0f}/table_nearwing_{:.0f}.omg'
 path_table_D2 = path_base + 'TABLES_D2_NaH2_2017/tableD2_NaH2_{:.0f}_1e21_FS17.omg'
 
@@ -240,7 +242,9 @@ for doublet_i, (idx_i, gamma_N_i, redwing_i) in doublet.items():
 
         # Set to non-zero values
         sigma_min = sigma_combined_arr[sigma_combined_arr>0].min()
-        sigma_combined_arr[sigma_combined_arr==0] = 1e-250
+        #sigma_combined_arr[sigma_combined_arr==0] = 1e-250
+        sigma_combined_arr[sigma_combined_arr==0] = sigma_min
+        #sigma_combined_arr[sigma_combined_arr==0] = sigma_combined_arr[sigma_combined_arr!=0][-2]
 
         print('Interpolating {} for pressure {:.6f} bar'.format(doublet_i, P))
 
@@ -252,7 +256,25 @@ for doublet_i, (idx_i, gamma_N_i, redwing_i) in doublet.items():
         )
         # Interpolate onto finer T-grid
         sigma_combined_arr_fine = 10**interp_func(np.log10(temperatures_fine))
-        sigma_combined_arr_fine[sigma_combined_arr_fine < sigma_min] = 0
+        sigma_combined_arr_fine[sigma_combined_arr_fine <= sigma_min*1.1] = 0
+
+        fig, ax = plt.subplots(figsize=(12,6))
+        for i, T_i in enumerate(temperatures):
+            ax.plot(
+                wave_pRT_grid[wave_mask]*1e7, sigma_combined_arr[i], label=f'Allard T={T_i}', 
+                color=plt.get_cmap('RdBu_r')(T_i/3000)
+                )
+        for i, T_i in enumerate(temperatures_fine):
+            ax.plot(
+                wave_pRT_grid[wave_mask]*1e7, sigma_combined_arr_fine[i], label='pRT T={:.0f}'.format(T_i), 
+                color=plt.get_cmap('RdBu_r')(T_i/3000), ls='--'
+                )
+        ax.legend()
+        ax.set(ylim=(1e-26,1e-8), yscale='log')
+        plt.tight_layout()
+        plt.savefig('./plots/Na_doublet_3/{}_P{:.1e}_interp.pdf'.format(doublet_i,P))
+        plt.close()
+        #import sys; sys.exit()
 
         # Save the opacities for each wavelength
         for i, T_i in enumerate(temperatures_fine):

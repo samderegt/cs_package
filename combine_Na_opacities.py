@@ -19,7 +19,8 @@ pressures = 10**np.arange(-6,3+1e-6,1)
 
 wave_pRT_grid = np.loadtxt('./data/wlen_petitRADTRANS.dat').T
 
-path_base = '/net/lem/data2/regt/Na_I_opacities_recomputed_pRT_grid/'
+#path_base = '/net/lem/data2/regt/Na_I_opacities_recomputed_pRT_grid/'
+path_base = '/net/lem/data2/regt/Na_I_recomputed_3/'
 
 for P in pressures:
     for T in temperatures_fine:
@@ -28,7 +29,7 @@ for P in pressures:
 
         # Add the other lines and save cross-sections
         path_other_lines = path_base + \
-            'opacities_wo_doublet/sigma_{:.0f}.K_{:.6f}bar.dat'.format(T, P)
+            'wo_doublet/sigma_{:.0f}.K_{:.6f}bar.dat'.format(T, P)
         _, sigma_other_lines = np.loadtxt(path_other_lines).T
 
         path_doublet = path_base + \
