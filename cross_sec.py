@@ -397,7 +397,7 @@ class CrossSection:
 
     def save_cross_sections(self, file):
 
-        print(f'Saving cross-sections to file \"{file}\"')
+        print(f'\nSaving cross-sections to file \"{file}\"')
         if not self.contains_lines:
             # No point in saving an array of 0's
             print('No lines in current cross-sections, not saving')

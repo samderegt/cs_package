@@ -78,7 +78,7 @@ class LineList:
 
         return wave_micron, sigma, P_grid, T_grid
 
-    def convert_to_pRT2_format(self, out_dir, pRT_wave_file, make_short_file):
+    def convert_to_pRT2_format(self, out_dir, pRT_wave_file, make_short_file, debug=False):
 
         # Load output
         wave_micron, sigma, P_grid, T_grid = self.load_final_output()
@@ -95,7 +95,8 @@ class LineList:
             for idx_T, T in enumerate(T_grid):
 
                 pRT_file = '{}/sigma_{:.0f}.K_{:.06f}bar.dat'.format(out_dir, T, P)
-                print(pRT_file)
+                if debug:
+                    print(pRT_file)
                 
                 PTpaths.append(
                     [f'{P}', f'{T}', pRT_file.split('/')[-1]]
@@ -155,15 +156,25 @@ class LineList:
             file_to_remove = pathlib.Path(f'{out_dir}/{file_to_remove}')
             file_to_remove.unlink()
 
-    def combine_cross_sections(self, tmp_file, N_trans, append=False):
+        if isinstance(self, HITEMP):
+            print("\n"+'#'*50)
+            print('Database is HITRAN/HITEMP, so line-strengths are scaled by solar isotope ratio.\
+You may need to change the \"molparam\" value in \"molparam_id.txt\".')
+            print('#'*50)
+
+    def combine_cross_sections(self, tmp_file, N_trans, append_to_existing=False):
 
         # TODO: test appending results to existing hdf5's (e.g. more T/P)
 
-        print(f'Combining temporary cross-sections to file \"{self.final_output_file}\"')
+        print(f'\nCombining temporary cross-sections to file \"{self.final_output_file}\"')
         sigma_tot = 0
         is_first  = True
 
-        for i in tqdm(range(N_trans)):
+        iterable = range(N_trans)
+        if N_trans > 1:
+            iterable = tqdm(iterable)
+        
+        for i in iterable:
 
             # Check if file exists
             tmp_file_i = tmp_file.format(i)
@@ -186,11 +197,13 @@ class LineList:
             # Add to total
             sigma_tot += sigma_i
 
-        if append:
+        if append_to_existing:
             # Load previous output
             existing_wave, existing_sigma, existing_P, existing_T = self.load_final_output()
-            existing_wave *= 1e-6 # [um] -> [m]
-
+            existing_wave  = existing_wave[::-1]*1e-6            # [um] -> [m]
+            existing_P     = existing_P*1e5                # [bar] -> [Pa]
+            existing_sigma = existing_sigma[::-1,:,:]
+            
             # Same wavelength-grid
             assert(len(wave)==len(existing_wave))
 
@@ -359,8 +372,7 @@ class ExoMol(LineList):
     
     def get_cross_sections(self, CS, file, show_pbar=True, debug=False):
 
-        debug = True
-        print(f'Computing cross-sections from \"{file}\"')
+        print(f'\nComputing cross-sections from \"{file}\"')
 
         # Column-widths in .trans file (!! can differ !!)
         col_widths = [12,13,13,15]
@@ -475,7 +487,7 @@ class HITEMP(LineList):
 
     def get_cross_sections(self, CS, file, show_pbar=True):
 
-        print(f'Computing cross-sections from \"{file}\"')
+        print(f'\nComputing cross-sections from \"{file}\"')
 
         # Read only N_lines_max lines to prevent memory-overload
         zip_file = read_fwf(
@@ -548,7 +560,7 @@ class VALD(LineList):
 
     def get_cross_sections(self, CS, file, show_pbar=True):
 
-        print(f'Computing cross-sections from \"{file}\"')
+        print(f'\nComputing cross-sections from \"{file}\"')
 
         # Read all transitions at once
         trans = read_fwf(

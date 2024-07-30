@@ -6,7 +6,8 @@ import data
 from cross_sec import CrossSection
 from figures import Figures
 
-import input.vald_fe as conf
+#import input.VALD_Fe as conf
+import input.example_ExoMol as conf
 
 if __name__ == '__main__':
 
@@ -18,6 +19,7 @@ if __name__ == '__main__':
     parser.add_argument('--plot', action='store_true')
 
     parser.add_argument('--convert_to_pRT2', action='store_true')
+    parser.add_argument('--append_to_existing', action='store_true')
 
     # Index to read if multiple .trans files are given
     parser.add_argument('--trans_idx_min', '-i_min', default=0, type=int)
@@ -32,7 +34,6 @@ if __name__ == '__main__':
             url_broad=conf.url_broad, 
             out_dir=conf.out_dir
             )
-        import sys; sys.exit()
     
     # Load data
     D = data.load_data(conf)
@@ -84,7 +85,8 @@ if __name__ == '__main__':
     if args.save:
         # (Possibly) combine cross-sections from different .trans files
         D.combine_cross_sections(
-            tmp_output_file, N_trans
+            tmp_output_file, N_trans, 
+            append_to_existing=args.append_to_existing
             )
         
     if args.plot:
