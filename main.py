@@ -7,7 +7,8 @@ from cross_sec import CrossSection
 from figures import Figures
 
 #import input.VALD_Fe as conf
-import input.example_ExoMol as conf
+#import input.example_ExoMol as conf
+import input.example_HITEMP as conf
 
 if __name__ == '__main__':
 
@@ -27,14 +28,15 @@ if __name__ == '__main__':
     parser.add_argument('--show_pbar', action='store_true')
     args = parser.parse_args()
 
+    # Download from the ExoMol/HITEMP database
     if args.download:
-        # Download data from the ExoMol server
-        data.ExoMol.download_data(
-            url_def_json=conf.url_def_json, 
-            url_broad=conf.url_broad, 
-            out_dir=conf.out_dir
-            )
-    
+        if conf.database.lower() == 'exomol':
+            data.ExoMol.download_data(conf)
+        elif conf.database.lower() in ['hitemp', 'hitran']:
+            data.HITEMP.download_data(conf)
+
+        import sys; sys.exit()
+
     # Load data
     D = data.load_data(conf)
     trans_file      = conf.files['transitions']

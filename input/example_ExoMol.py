@@ -40,11 +40,12 @@ T_grid = np.array([500,1000,2000], dtype=np.float64) # [K]
 
 mass = 27.98948 # (in .json file)
 
-wave_min = 1.0/3.0; wave_max = 50.0 # um
-delta_nu = 0.01
+wave_min = 1.0/3.0; wave_max = 50.0 # [um]
+delta_nu = 0.01 # [cm^-1]
 
-local_cutoff  = 0.35   # Local line-strength cutoff
-global_cutoff = 1e-45  # Global line-strength cutoff
+# Line-strength cutoffs
+local_cutoff  = 0.35
+global_cutoff = 1e-45
 
 # gamma_V [cm^-1], P [bar]
 wing_cutoff = lambda gamma_V, P: 25 if P<=200 else 100 # Gharib-Nezhad et al. (2024)

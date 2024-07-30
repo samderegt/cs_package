@@ -26,6 +26,12 @@ def load_data(conf):
 
     raise Exception(f'Database \"{conf.database}\" not recognised.')
 
+def wget_if_not_exist(url, out_dir):
+    out_name = out_dir + url.split('/')[-1]
+    if pathlib.Path(out_name).is_file():
+        print(f'File \"{out_name}\" already exists, skipping download')
+        return out_name
+    return wget.download(url, out=f'{out_dir}')
 
 class LineList:
     
@@ -158,7 +164,7 @@ class LineList:
 
         if isinstance(self, HITEMP):
             print("\n"+'#'*50)
-            print('Database is HITRAN/HITEMP, so line-strengths are scaled by solar isotope ratio.\
+            print('Database is HITRAN/HITEMP, so line-strengths are scaled by solar isotope ratio.\n\
 You may need to change the \"molparam\" value in \"molparam_id.txt\".')
             print('#'*50)
 
@@ -267,20 +273,17 @@ P_grid: {P}\nT_grid: {T}.'
 class ExoMol(LineList):
 
     @classmethod
-    def download_data(cls, url_def_json, url_broad, out_dir):
+    def download_data(cls, conf):
 
-        def wget_if_not_exist(url, out_dir=f'{out_dir}'):
-            out_name = out_dir + url.split('/')[-1]
-            if pathlib.Path(out_name).is_file():
-                print(f'File \"{out_name}\" already exists, skipping download')
-                return out_name
-            return wget.download(url, out=f'{out_dir}')
+        url_def_json = conf.url_def_json
+        url_broad = conf.url_broad
+        out_dir   = conf.out_dir
 
         # Create destination directory
         pathlib.Path(out_dir).mkdir(parents=True, exist_ok=True)
 
         # Download the definition file
-        def_file = wget_if_not_exist(url_def_json)
+        def_file = wget_if_not_exist(url_def_json, out_dir)
         url_base = url_def_json.replace('.json', '')
         print()
 
@@ -290,12 +293,12 @@ class ExoMol(LineList):
 
         # Download partition-function and states files
         print('\nPartition file:')
-        partition_file = wget_if_not_exist(f'{url_base}.pf')
+        partition_file = wget_if_not_exist(f'{url_base}.pf', out_dir)
         print()
         print(pathlib.Path(partition_file).absolute())
 
         print('\nStates file:')
-        states_file = wget_if_not_exist(f'{url_base}.states.bz2')
+        states_file = wget_if_not_exist(f'{url_base}.states.bz2', out_dir)
         print()
         print(pathlib.Path(states_file).absolute())
         
@@ -304,7 +307,7 @@ class ExoMol(LineList):
         # Download transition files
         N_trans = d['dataset']['transitions']['number_of_transition_files']
         if N_trans == 1:
-            trans_file_i = wget_if_not_exist(f'{url_base}.trans.bz2')
+            trans_file_i = wget_if_not_exist(f'{url_base}.trans.bz2', out_dir)
             print()
             print(pathlib.Path(trans_file_i).absolute())
         else:
@@ -318,7 +321,8 @@ class ExoMol(LineList):
                 nu_max_i = nu_min_i + delta_nu
 
                 trans_file_i = wget_if_not_exist(
-                    '{}__{:05d}-{:05d}.trans.bz2'.format(url_base, nu_min_i, nu_max_i)
+                    '{}__{:05d}-{:05d}.trans.bz2'.format(url_base, nu_min_i, nu_max_i), 
+                    out_dir
                     )
                 trans_files.append(pathlib.Path(trans_file_i).absolute())
             
@@ -330,7 +334,7 @@ class ExoMol(LineList):
         broad_files = []
         # Download broadening files
         for url_broad_i in url_broad:
-            broad_file_i = wget_if_not_exist(url_broad_i)
+            broad_file_i = wget_if_not_exist(url_broad_i, out_dir)
             broad_files.append(pathlib.Path(broad_file_i).absolute())
         
         print()
@@ -473,7 +477,26 @@ class ExoMol(LineList):
         return CS
 
 class HITEMP(LineList):
-    
+
+    @classmethod
+    def download_data(cls, conf):
+        
+        urls    = conf.urls
+        out_dir = conf.out_dir
+
+        # Create destination directory
+        pathlib.Path(out_dir).mkdir(parents=True, exist_ok=True)
+
+        files = []
+        for url_i in urls:
+            file_i = wget_if_not_exist(url_i, out_dir)
+            files.append(pathlib.Path(file_i).absolute())
+
+        print()
+        for file_i in files:
+            print(file_i)
+        print()
+
     def __init__(self, conf):
 
         # Instantiate the parent class
@@ -489,10 +512,16 @@ class HITEMP(LineList):
 
         print(f'\nComputing cross-sections from \"{file}\"')
 
+        # How pandas should handle compression
+        comp = pathlib.Path(file).suffix
+        if comp != 'bz2':
+            comp = 'infer'
+
         # Read only N_lines_max lines to prevent memory-overload
         zip_file = read_fwf(
             file, widths=(2,1,12,10,10,5,5,10,4,8), 
-            header=None, chunksize=self.N_lines_max
+            header=None, chunksize=self.N_lines_max, 
+            compression=comp
         )
         for trans_i in zip_file:
             trans_i = np.array(trans_i)

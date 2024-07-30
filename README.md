@@ -1,9 +1,9 @@
 A Python package for computing opacity cross-sections, using line lists from VALD, ExoMol or HITRAN/HITEMP. 
 
-## Usage
+# Usage
 In `main.py`, modify `import input.XXX as conf` to read in the correct inputs (see examples in `input/`).
 
-#### Computing cross-sections
+## Computing cross-sections
 ```
 python main.py -cs
 ```
@@ -16,20 +16,19 @@ Each call with `-cs` will create temporary `.hdf5` files of the considered trans
 python main.py -s
 ```
 
-#### Appending to existing save
+## Appending to existing save
 ```
 python main.py -s --append_to_existing
 ```
 will add new pressure or temperature points to an existing `.hdf5` save (into a new `*_new.hdf5` to avoid overwriting). (**can only handle expansion of pressure- or temperature-axis at a time**)
 
-
-#### Converting to pRT2-format
+## Converting to pRT2-format
 ```
 python main.py --convert_to_pRT2
 ```
 will create the `short_stream/` opacity-directory for petitRADTRANS 2. 
 
-#### Plotting
+## Plotting
 ```
 python main.py --plot
 ```
@@ -38,7 +37,7 @@ or (to plot the pRT-converted opacities):
 python figures.py
 ```
 
-#### Downloading data (ExoMol only)
+## Downloading data (ExoMol only)
 ```
 python main.py --download
 ```
