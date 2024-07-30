@@ -7,9 +7,13 @@ from petitRADTRANS import Radtrans
 #line_species = ['H2O_181', 'H2O_181_HotWat78']
 #mass = 20
 
-prefix = 'H2O'
-line_species = ['H2O_main_iso', 'H2O_pokazatel_main_iso']
-mass = 18
+prefix = 'Fe'
+line_species = ['Fe', 'Fe_Sam']
+mass = 55.845
+
+#prefix = 'H2O'
+#line_species = ['H2O_pokazatel_main_iso', 'H2O_pokazatel_main_iso_Sam']
+#mass = 18
 
 #prefix = 'VO'
 #line_species = ['VO_ExoMol_McKemmish', 'VO_HyVO_main_iso']
@@ -20,13 +24,14 @@ mass = 18
 #mass = 23
 
 #prefix = 'CO'
-#line_species = ['CO_main_iso', 'CO_high']; mass = 12+16
+#line_species = ['CO_high', 'CO_high_Sam']; mass = 12+16
 #line_species = ['CO_36', 'CO_36_high']; mass = 13+16
+#line_species = ['CO_36_high', 'CO_36_high_Sam']; mass = 13+16
 #temperatures = np.arange(250,3000+1e-6,250)
 #temperatures = np.arange(1250,1500+1e-6,250)
 #temperatures = np.arange(250,3000+1e-6,750)
 #temperatures = [1700]
-temperatures = np.arange(500,3000,500)
+temperatures = np.arange(1500,3500,500)
 #temperatures = [300,400,500,600,700,800,900,1000,1200,1400]
 
 #temperatures = [300,400,500,600,700]
@@ -35,9 +40,13 @@ temperatures = np.arange(500,3000,500)
 pressures    = [0.1]
 #wave_range   = [(2320,2370), (2330,2340), (2320,2327), (2334,2337)]
 #wave_range   = [(2342,2500), (2400,2405), (2405,2410), (2410,2415), ]
-wave_range   = [(2490,2495), (2495,2500), (2485,2490), (2470,2475)]
+#wave_range   = [(2490,2495), (2495,2500), (2485,2490), (2470,2475)]
+
+#wave_min, wave_max = 2280, 2500
+wave_min, wave_max = 1100, 1200
+d_wave = 2.5
 wave_range = [
-    (x,x+5) for x in range(2300,2500,5)
+    (x,x+d_wave) for x in np.arange(wave_min,wave_max,d_wave)
 ]
 #wave_range   = [(2265,2273)]*4
 #wave_range   = [(2230,2240)]*4
@@ -63,13 +72,13 @@ lbl_opacity_sampling = 1
 atm1 = Radtrans(
     line_species=[line_species[0]], mode='lbl', 
     lbl_opacity_sampling=lbl_opacity_sampling, 
-    wlen_bords_micron=[2.3,2.5]
+    wlen_bords_micron=[wave_min*1e-3,wave_max*1e-3]
     )
 
 atm2 = Radtrans(
     line_species=[line_species[1]], mode='lbl', 
     lbl_opacity_sampling=lbl_opacity_sampling, 
-    wlen_bords_micron=[2.3,2.5]
+    wlen_bords_micron=[wave_min*1e-3,wave_max*1e-3]
     )
 
 import os
@@ -90,7 +99,7 @@ for P in pressures:
         wave_micron, opa2 = atm2.plot_opas(
             atm2.line_species, temperature=T, pressure_bar=P, return_opacities=True
             )[atm2.line_species[0]]
-        opa1 *= np.nan
+        #opa1 *= np.nan
         
         for j, ax_j in enumerate(ax):
 
@@ -100,12 +109,12 @@ for P in pressures:
             label = '{} | T={:.0f}K'.format(line_species[0], T)
             ax_j.plot(
                 wave_micron[mask]*1e3, opa1[mask] * (mass*1.66054e-24), 
-                c=plt.get_cmap('coolwarm')((i)/len(temperatures)), ls='--', 
+                c=plt.get_cmap('coolwarm')(i/(len(temperatures)-1)), ls='--', 
                 label=label, zorder=0, #alpha=0.5
                 )
             ax_j.plot(
                 wave_micron[mask]*1e3, opa2[mask] * (mass*1.66054e-24), 
-                c=plt.get_cmap('coolwarm')((i)/len(temperatures)), zorder=1,
+                c=plt.get_cmap('coolwarm')(i/(len(temperatures)-1)), zorder=1,
                 )
             ax_j.set(yscale='log', xlim=wave_range[j])
 
@@ -124,6 +133,7 @@ for P in pressures:
     #plt.show()
     plt.close()
 
+import sys; sys.exit()
 
 for T in temperatures:
     fig, ax = plt.subplots(figsize=(12,11*len(wave_range)/4), nrows=len(wave_range))
