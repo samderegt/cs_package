@@ -31,7 +31,7 @@ def wget_if_not_exist(url, out_dir):
     if pathlib.Path(out_name).is_file():
         print(f'File \"{out_name}\" already exists, skipping download')
         return out_name
-    return wget.download(url, out=f'{out_dir}')
+    return wget.download(url, out=out_dir)
 
 class LineList:
     
@@ -277,13 +277,13 @@ class ExoMol(LineList):
 
         url_def_json = conf.url_def_json
         url_broad = conf.url_broad
-        out_dir   = conf.out_dir
+        input_dir = conf.input_dir
 
         # Create destination directory
-        pathlib.Path(out_dir).mkdir(parents=True, exist_ok=True)
+        pathlib.Path(input_dir).mkdir(parents=True, exist_ok=True)
 
         # Download the definition file
-        def_file = wget_if_not_exist(url_def_json, out_dir)
+        def_file = wget_if_not_exist(url_def_json, input_dir)
         url_base = url_def_json.replace('.json', '')
         print()
 
@@ -293,12 +293,12 @@ class ExoMol(LineList):
 
         # Download partition-function and states files
         print('\nPartition file:')
-        partition_file = wget_if_not_exist(f'{url_base}.pf', out_dir)
+        partition_file = wget_if_not_exist(f'{url_base}.pf', input_dir)
         print()
         print(pathlib.Path(partition_file).absolute())
 
         print('\nStates file:')
-        states_file = wget_if_not_exist(f'{url_base}.states.bz2', out_dir)
+        states_file = wget_if_not_exist(f'{url_base}.states.bz2', input_dir)
         print()
         print(pathlib.Path(states_file).absolute())
         
@@ -307,7 +307,7 @@ class ExoMol(LineList):
         # Download transition files
         N_trans = d['dataset']['transitions']['number_of_transition_files']
         if N_trans == 1:
-            trans_file_i = wget_if_not_exist(f'{url_base}.trans.bz2', out_dir)
+            trans_file_i = wget_if_not_exist(f'{url_base}.trans.bz2', input_dir)
             print()
             print(pathlib.Path(trans_file_i).absolute())
         else:
@@ -322,7 +322,7 @@ class ExoMol(LineList):
 
                 trans_file_i = wget_if_not_exist(
                     '{}__{:05d}-{:05d}.trans.bz2'.format(url_base, nu_min_i, nu_max_i), 
-                    out_dir
+                    out_dir=input_dir
                     )
                 trans_files.append(pathlib.Path(trans_file_i).absolute())
             
@@ -334,7 +334,7 @@ class ExoMol(LineList):
         broad_files = []
         # Download broadening files
         for url_broad_i in url_broad:
-            broad_file_i = wget_if_not_exist(url_broad_i, out_dir)
+            broad_file_i = wget_if_not_exist(url_broad_i, input_dir)
             broad_files.append(pathlib.Path(broad_file_i).absolute())
         
         print()
@@ -481,15 +481,15 @@ class HITEMP(LineList):
     @classmethod
     def download_data(cls, conf):
         
-        urls    = conf.urls
-        out_dir = conf.out_dir
+        urls = conf.urls
+        input_dir = conf.input_dir
 
         # Create destination directory
-        pathlib.Path(out_dir).mkdir(parents=True, exist_ok=True)
+        pathlib.Path(input_dir).mkdir(parents=True, exist_ok=True)
 
         files = []
         for url_i in urls:
-            file_i = wget_if_not_exist(url_i, out_dir)
+            file_i = wget_if_not_exist(url_i, input_dir)
             files.append(pathlib.Path(file_i).absolute())
 
         print()
@@ -575,10 +575,15 @@ class VALD(LineList):
         # Load states
         states = read_csv(
             file, sep='\t', engine='python', 
-            header=0, skipfooter=1
+            header=0, #skipfooter=1
             )
         g = np.array(states['g'])
         E = np.array(states['Level (cm-1)'])
+
+        # (higher) ions beyond this index
+        idx_u = np.min(np.argwhere(np.isnan(g)))
+        g = g[:idx_u]
+        E = E[:idx_u]
 
         # Partition function
         self.Q = np.sum(
@@ -586,6 +591,7 @@ class VALD(LineList):
             axis=-1 # Sum over states, keep T-axis
             )
         self.Q = np.concatenate((T[:,None], self.Q[:,None]), axis=-1)
+        print(self.Q)
 
     def get_cross_sections(self, CS, file, show_pbar=True):
 
@@ -618,26 +624,8 @@ class VALD(LineList):
         # Single vdW-damping given
         gamma_vdW = 10**trans[:,4] # [s^-1 cm^3]
 
-        # Use only transitions with valid vdW-damping
-        mask_valid = (trans[:,4] < 0.0)
-
-        if self.nu_0_to_ignore is not None:
-            # And remove any transitions on request
-            for nu_0_i in np.array([self.nu_0_to_ignore]).flatten():
-                # Set matching wavenumbers to 'invalid'
-                mask_nu_0_i = np.isclose(trans[:,0], nu_0_i)
-                mask_valid[mask_nu_0_i] = False
-
-        gamma_vdW = gamma_vdW[mask_valid]
-
-        nu_0  = nu_0[mask_valid]
-        E_low = E_low[mask_valid]
-        S_0   = S_0[mask_valid]
-
-        log_gamma_N = trans[mask_valid,3]
-
         if None not in [self.E_ion, self.Z]:
-
+            # If alkali (and E_ion/Z given), use Schweitzer+ (1996) vdW
             alpha_H = 0.666793
             alpha_p = 0.806
             E_H     = 13.6 * 8065.73 # [cm^-1]
@@ -650,7 +638,30 @@ class VALD(LineList):
                 1.01e-32 * alpha_p/alpha_H * (self.Z+1)**2 * \
                 ((E_H/(self.E_ion-E_low_cm))**2 - (E_H/(self.E_ion-E_high_cm))**2)
             )
-        
+            mask_valid = np.ones_like(trans[:,4], dtype=bool)
+
+        else:
+            # If not alkali, use only transitions with valid vdW-damping
+            mask_valid = (trans[:,4] < 0.0)
+
+        if self.nu_0_to_ignore is not None:
+            print('Masking transitions at:')
+            # And remove any transitions on request
+            for nu_0_i in np.array([self.nu_0_to_ignore]).flatten():
+                print(f'{nu_0_i} cm^-1 ({1e4/nu_0_i} um)')
+                # Set matching wavenumbers to 'invalid'
+                mask_nu_0_i = np.isclose(trans[:,0], nu_0_i)
+                mask_valid[mask_nu_0_i] = False
+
+        nu_0  = nu_0[mask_valid]
+        E_low = E_low[mask_valid]
+        S_0   = S_0[mask_valid]
+
+        gamma_vdW = gamma_vdW[mask_valid]
+        log_gamma_N = trans[mask_valid,3]
+        if hasattr(CS, 'C_6'):
+            CS.C_6 = CS.C_6[mask_valid]
+
         # Compute opacities
         CS.loop_over_PT_grid(
             func=CS.get_cross_sections, show_pbar=show_pbar, 

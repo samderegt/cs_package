@@ -14,16 +14,16 @@ urls = [
     'https://www.exomol.com/db/CO/12C-16O/12C-16O__H2.broad', 
     'https://www.exomol.com/db/CO/12C-16O/12C-16O__He.broad', 
 ]
-out_dir = '/net/lem/data2/regt/pRT_opacities/input_data/HITEMP/12CO/'
+input_dir = '/net/lem/data2/regt/pRT_opacities/input_data/HITEMP/12CO/'
 
 # Output-directory
 cross_sec_outputs = '/net/lem/data2/regt/pRT_opacities/cross_sec_outputs/'
 
 files = dict(
-    partition_function = f'{out_dir}/q26.txt', 
-    H2_broadening = f'{out_dir}/12C-16O__H2.broad', 
-    He_broadening = f'{out_dir}/12C-16O__He.broad', 
-    transitions = f'{out_dir}/05_HITEMP2019.par.bz2', 
+    partition_function = f'{input_dir}/q26.txt', 
+    H2_broadening = f'{input_dir}/12C-16O__H2.broad', 
+    He_broadening = f'{input_dir}/12C-16O__He.broad', 
+    transitions = f'{input_dir}/05_HITEMP2019.par.bz2', 
     
     tmp_output   = f'{cross_sec_outputs}'+'/tmp/12CO_cross{}.hdf5', 
     final_output = f'{cross_sec_outputs}/12CO/12CO.hdf5', 
@@ -32,7 +32,7 @@ files = dict(
 pRT = dict(
     out_dir         = f'{cross_sec_outputs}/12CO/12CO_pRT2/', 
     wave            = '/net/lem/data1/regt/pRT_opacities/data/wlen_petitRADTRANS.dat', 
-    make_short_file = '/net/lem/data2/regt/petitRADTRANS_opa_source/make_short.f90', 
+    make_short_file = '/net/lem/data2/regt/pRT_opacities/input_data/make_short.f90', 
 )
 
 #P_grid = np.logspace(-5,2,8) # [bar]

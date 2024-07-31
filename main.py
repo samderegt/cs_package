@@ -8,7 +8,8 @@ from figures import Figures
 
 #import input.VALD_Fe as conf
 #import input.example_ExoMol as conf
-import input.example_HITEMP as conf
+#import input.example_HITEMP as conf
+import input.example_VALD as conf
 
 if __name__ == '__main__':
 
@@ -97,13 +98,11 @@ if __name__ == '__main__':
             )
         F.plot_P(
             T=1000, P=10**np.array([-4,-2,0,2], dtype=np.float64), 
-            #ylim=(1e-23,1e-18)
-            ylim=(1e-35,1e-18)
+            ylim=(1e-30,1e-10)
             )
         F.plot_T(
             P=1, T=np.array([500,1000,1500,2000,2500]), 
-            #ylim=(1e-23,1e-18)
-            ylim=(1e-35,1e-18)
+            ylim=(1e-30,1e-10)
             )
         
     if args.convert_to_pRT2:

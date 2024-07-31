@@ -8,17 +8,17 @@ url_broad = [
     'https://www.exomol.com/db/AlH/27Al-1H/27Al-1H__H2.broad', 
     'https://www.exomol.com/db/AlH/27Al-1H/27Al-1H__He.broad'
 ]
-out_dir = '/net/lem/data2/regt/pRT_opacities/input_data/ExoMol/AlH/'
+input_dir = '/net/lem/data2/regt/pRT_opacities/input_data/ExoMol/AlH/'
 
 # Output-directory
 cross_sec_outputs = '/net/lem/data2/regt/pRT_opacities/cross_sec_outputs/'
 
 files = dict(
-    partition_function = f'{out_dir}/27Al-1H__AloHa.pf', 
-    H2_broadening      = f'{out_dir}/27Al-1H__H2.broad', 
-    He_broadening      = f'{out_dir}/27Al-1H__He.broad', 
-    transitions        = [f'{out_dir}/27Al-1H__AloHa.trans.bz2'], 
-    states             = f'{out_dir}/27Al-1H__AloHa.states.bz2', 
+    partition_function = f'{input_dir}/27Al-1H__AloHa.pf', 
+    H2_broadening      = f'{input_dir}/27Al-1H__H2.broad', 
+    He_broadening      = f'{input_dir}/27Al-1H__He.broad', 
+    transitions        = [f'{input_dir}/27Al-1H__AloHa.trans.bz2'], 
+    states             = f'{input_dir}/27Al-1H__AloHa.states.bz2', 
     
     tmp_output   = f'{cross_sec_outputs}'+'/tmp/AlH_cross{}.hdf5', 
     final_output = f'{cross_sec_outputs}/AlH/AlH.hdf5', 
@@ -27,7 +27,7 @@ files = dict(
 pRT = dict(
     out_dir         = f'{cross_sec_outputs}/AlH/AlH_pRT2/', 
     wave            = '/net/lem/data1/regt/pRT_opacities/data/wlen_petitRADTRANS.dat', 
-    make_short_file = '/net/lem/data2/regt/petitRADTRANS_opa_source/make_short.f90', 
+    make_short_file = '/net/lem/data2/regt/pRT_opacities/input_data/make_short.f90', 
 )
 
 #P_grid = np.logspace(-5,2,8) # [bar]

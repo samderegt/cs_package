@@ -1,5 +1,5 @@
 plots/
 logs/
-input_data/
+input_data/*/
 cross_sec_outputs/
 __pycache__/
