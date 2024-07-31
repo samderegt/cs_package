@@ -1,3 +1,6 @@
-data/wlen_petitRADTRANS.dat
-data/param_D1_KHe_4p5s.dat
 plots/
+logs/
+input_data/HITEMP/
+input_data/ExoMol/
+cross_sec_outputs/
+__pycache__/
