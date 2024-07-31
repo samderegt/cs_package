@@ -36,6 +36,18 @@ def wget_if_not_exist(url, out_dir):
 
 class LineList:
     
+    @classmethod
+    def load_hdf5_output(cls, file):
+
+        with h5py.File(file, 'r') as f:
+            # Make an array [...]
+            wave  = f['wave'][...] # [m]
+            sigma = 10**f['cross_sec'][...] - 1e-250 # [m^2]
+            P = 10**f['P'][...] - 1e-250 # [Pa]
+            T = f['T'][...] # [K]
+
+        return wave, sigma, P, T
+    
     def __init__(self, conf):
 
         # Atomic mass [kg]
@@ -69,21 +81,9 @@ class LineList:
         return np.mean(gamma), np.mean(n)
 
     def load_final_output(self):
-
-        with h5py.File(self.final_output_file, 'r') as f:
-            wave_micron = f['wave'][...] # Make an array
-            wave_micron *= 1e6 # [m] -> um
-            
-            sigma = f['cross_sec'][...]
-            sigma = 10**sigma * 1e4 # [m^2] -> [cm^2]
-
-            P_grid = f['P'][...]
-            P_grid = 10**P_grid - 1e-250
-            P_grid *= 1e-5 # [Pa] -> [bar]
-
-            T_grid = f['T'][...]
-
-        return wave_micron, sigma, P_grid, T_grid
+        # Convert to [um], [cm^2/molecule], [bar], [K]
+        wave, sigma, P, T = self.load_hdf5_output(self.final_output_file)
+        return wave*1e6, sigma*1e4, P*1e-5, T
 
     def convert_to_pRT2_format(self, out_dir, pRT_wave_file, make_short_file, debug=False):
 
@@ -171,11 +171,8 @@ You may need to change the \"molparam\" value in \"molparam_id.txt\".')
 
     def combine_cross_sections(self, tmp_file, N_trans, append_to_existing=False):
 
-        # TODO: test appending results to existing hdf5's (e.g. more T/P)
-
         print(f'\nCombining temporary cross-sections to file \"{self.final_output_file}\"')
         sigma_tot = 0
-        is_first  = True
 
         iterable = range(N_trans)
         if N_trans > 1:
@@ -189,33 +186,24 @@ You may need to change the \"molparam\" value in \"molparam_id.txt\".')
                 # Move on to next file
                 continue
 
-            with h5py.File(tmp_file_i, 'r') as f:
-                # Opacity cross-sections for 1 .trans file
-                sigma_i = f['cross_sec'][...] # Make an array
-
-                if is_first:
-                    is_first = False
-
-                    # Only read grids from first file (same in others)
-                    wave = f['wave'][...]
-                    P = f['P'][...]
-                    T = f['T'][...]
+            # Opacity cross-sections for 1 .trans file
+            wave, sigma_i, P, T = self.load_hdf5_output(tmp_file_i)
 
             # Add to total
             sigma_tot += sigma_i
 
         if append_to_existing:
-            # Load previous output
-            existing_wave, existing_sigma, existing_P, existing_T = self.load_final_output()
-            existing_wave  = existing_wave[::-1]*1e-6            # [um] -> [m]
-            existing_P     = existing_P*1e5                # [bar] -> [Pa]
-            existing_sigma = existing_sigma[::-1,:,:]
-            
+            # Load previous output [m], [m^2], [Pa], [K]
+            existing_wave, existing_sigma, existing_P, existing_T \
+                = self.load_hdf5_output(self.final_output_file)
+
             # Same wavelength-grid
             assert(len(wave)==len(existing_wave))
+            #assert((wave==existing_wave).all())
 
             # Save in a new output file
-            self.final_output_file = self.final_output_file.replace('.hdf5', '_new.hdf5')
+            self.final_output_file = \
+                self.final_output_file.replace('.hdf5', '_new.hdf5')
 
             if np.array_equal(existing_P, P):
                 # Equal along pressure-axis, insert new temperatures
@@ -254,22 +242,22 @@ P_grid: {P}\nT_grid: {T}.'
 
         # Save in a single file
         with h5py.File(self.final_output_file, 'w') as f:
-            # Convert from [cm^2] to [m^2], rounding to save memory
+            # Rounding to save memory
             dat1 = f.create_dataset(
                 'cross_sec', compression='gzip', 
-                data=np.around(np.log10(1e-4*sigma_tot[::-1,:,:]+1e-250),decimals=3)
+                data=np.around(np.log10(sigma_tot+1e-250),decimals=3)
                 )
             dat1.attrs['units'] = 'log(m^2/molecule)'
             
-            dat2 = f.create_dataset('wave', compression='gzip', data=wave[::-1])
+            dat2 = f.create_dataset('wave', compression='gzip', data=wave)
             dat2.attrs['units'] = 'm'
 
+            # Add 1e-250 to allow zero pressure
             dat3 = f.create_dataset('P', compression='gzip', data=np.log10(P+1e-250))
             dat3.attrs['units'] = 'log(Pa)'
 
             dat4 = f.create_dataset('T', compression='gzip', data=T)
             dat4.attrs['units'] = 'K'
-
 
 class ExoMol(LineList):
 
@@ -380,108 +368,88 @@ class ExoMol(LineList):
 
         return states
     
-    def get_cross_sections(self, CS, file, show_pbar=True, debug=False):
+    def get_cross_sections(self, CS, file, show_pbar=True, debug=True):
 
         print(f'\nComputing cross-sections from \"{file}\"')
 
+        i = 0
         state_ID_u = []; state_ID_l = []; A = []
 
         with bz2.open(file) as f:
-            
-            # Compute opacities in chunks to prevent memory-overload
-            for i, line in enumerate(f):
+
+            while True:
+                # Compute opacities in chunks to prevent memory-overload
+                line = f.readline()
+
                 if i == 0:
-                    # Infer column-widths in .trans file
+                    # Infer column-widths in .trans file (only 1st line)
                     sep_line_0 = re.findall('\s+\S+', str(line))
                     col_widths = [len(col) for col in sep_line_0]
                     col_idx = np.cumsum(col_widths)
 
+                elif (i%self.N_lines_max == 0) or (not line):
+                    
+                    # Compute when N_lines_max have been read, or end-of-file
+                    
+                    if len(A) == 0:
+                        # Last line was included in previous chunk 
+                        # (i.e. len(file) == X*N_lines_max)
+                        return CS
+
+                    if debug:
+                        print('Computing for chunk')
+
+                    if i > self.N_lines_max:
+                        print('Computing for final chunk')
+                    elif not line:
+                        print(f'Computing for {i} transitions')
+                        
+                    idx_u = np.searchsorted(self.states[:,0], np.array(state_ID_u, dtype=int))
+                    idx_l = np.searchsorted(self.states[:,0], np.array(state_ID_l, dtype=int))
+                    
+                    E_l = self.states[idx_l,1].astype(np.float64)
+                    g_u = self.states[idx_u,2]
+
+                    E_u = self.states[idx_u,1].astype(np.float64)
+                    nu_0 = E_u - E_l
+                    nu_0 = nu_0.astype(np.float64)
+
+                    # Compute line-strength at reference temperature
+                    term1 = np.array(A, dtype=np.float64)*g_u / (8*np.pi*(100*sc.c)*nu_0**2)
+                    term2 = np.exp(-c2*E_l/CS.T_0) / CS.q_0
+                    term3 = (1-np.exp(-c2*nu_0/CS.T_0))
+                    S_0 = term1 * term2 * term3
+                    
+                    # Add to lines to compute at the next iteration
+                    nu_0 *= (100*sc.c) # Unit conversion
+                    E_l  *= sc.h * (100*sc.c)
+                    S_0  *= (100*sc.c)
+
+                    E_l = E_l.astype(np.float64)
+                    S_0 = S_0.astype(np.float64)
+
+                    # Next iteration, compute opacities
+                    CS.loop_over_PT_grid(
+                        func=CS.get_cross_sections, show_pbar=show_pbar, 
+                        nu_0=nu_0, E_low=E_l, S_0=S_0, 
+                        gamma_H2=self.gamma_H2, n_H2=self.n_H2, 
+                        gamma_He=self.gamma_He, n_He=self.n_He, 
+                        )
+                    
+                    if not line:
+                        # End-of-file
+                        return CS
+                    
+                    # Empty lists
+                    state_ID_u = []; state_ID_l = []; A = []
+
+                # Read transition-info for each 
                 # Access info on upper and lower states
                 state_ID_u.append(line[0:col_idx[0]])
                 state_ID_l.append(line[col_idx[0]:col_idx[1]])
                 A.append(line[col_idx[1]:col_idx[2]])
 
-                if i == 0:
-                    continue
-                if (i%self.N_lines_max != 0):
-                    continue
-
-                if debug:
-                    print('Computing for chunk')
-
-                idx_u = np.searchsorted(self.states[:,0], np.array(state_ID_u, dtype=int))
-                idx_l = np.searchsorted(self.states[:,0], np.array(state_ID_l, dtype=int))
-                
-                E_l = self.states[idx_l,1].astype(np.float64)
-                g_u = self.states[idx_u,2]
-
-                E_u = self.states[idx_u,1].astype(np.float64)
-                nu_0 = E_u - E_l
-                nu_0 = nu_0.astype(np.float64)
-
-                # Compute line-strength at reference temperature
-                term1 = np.array(A, dtype=np.float64)*g_u / (8*np.pi*(100*sc.c)*nu_0**2)
-                term2 = np.exp(-c2*E_l/CS.T_0) / CS.q_0
-                term3 = (1-np.exp(-c2*nu_0/CS.T_0))
-                S_0 = term1 * term2 * term3
-                
-                # Add to lines to compute at the next iteration
-                nu_0 *= (100*sc.c) # Unit conversion
-                E_l *= sc.h * (100*sc.c)
-                S_0 *= (100*sc.c)
-
-                E_l = E_l.astype(np.float64)
-                S_0 = S_0.astype(np.float64)
-
-                # Next iteration, compute opacities
-                CS.loop_over_PT_grid(
-                    func=CS.get_cross_sections, show_pbar=show_pbar, 
-                    nu_0=nu_0, E_low=E_l, S_0=S_0, 
-                    gamma_H2=self.gamma_H2, n_H2=self.n_H2, 
-                    gamma_He=self.gamma_He, n_He=self.n_He, 
-                    )
-                
-                # Empty lists
-                state_ID_u = []; state_ID_l = []; A = []
-
-        if i > self.N_lines_max:
-            print('Computing for final chunk')
-        else:
-            print(f'Computing for {i+1} transitions')
-
-        idx_u = np.searchsorted(self.states[:,0], np.array(state_ID_u, dtype=int))
-        idx_l = np.searchsorted(self.states[:,0], np.array(state_ID_l, dtype=int))
-
-        E_l = self.states[idx_l,1].astype(np.float64)
-        g_u = self.states[idx_u,2]
-
-        E_u = self.states[idx_u,1].astype(np.float64)
-        nu_0 = E_u - E_l
-        nu_0 = nu_0.astype(np.float64)
-
-        # Compute line-strength at reference temperature
-        term1 = np.array(A, dtype=np.float64)*g_u / (8*np.pi*(100*sc.c)*nu_0**2)
-        term2 = np.exp(-c2*E_l/CS.T_0) / CS.q_0
-        term3 = (1-np.exp(-c2*nu_0/CS.T_0))
-        S_0 = term1 * term2 * term3
-        
-        # Add to lines to compute at the next iteration
-        nu_0 *= (100*sc.c) # Unit conversion
-        E_l *= sc.h * (100*sc.c)
-        S_0 *= (100*sc.c)
-        
-        E_l = E_l.astype(np.float64)
-        S_0 = S_0.astype(np.float64)
-
-        # Final iteration, compute opacities
-        CS.loop_over_PT_grid(
-            func=CS.get_cross_sections, show_pbar=show_pbar, 
-            nu_0=nu_0, E_low=E_l, S_0=S_0, 
-            gamma_H2=self.gamma_H2, n_H2=self.n_H2, 
-            gamma_He=self.gamma_He, n_He=self.n_He, 
-            )
-
-        return CS
+                i += 1
 
 class HITEMP(LineList):
 
@@ -556,7 +524,6 @@ class HITEMP(LineList):
                 )
         
         return CS
-
 
 class VALD(LineList):
     

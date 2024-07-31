@@ -407,7 +407,16 @@ class CrossSection:
         pathlib.Path(file).parent.mkdir(parents=True, exist_ok=True)
 
         with h5py.File(file, 'w') as f:
-            f.create_dataset('cross_sec', data=self.sigma, compression='gzip')
-            f.create_dataset('wave', data=sc.c/self.nu_grid, compression='gzip')
-            f.create_dataset('P', data=self.P_grid, compression='gzip')
-            f.create_dataset('T', data=self.T_grid, compression='gzip')
+            # Flip arrays to be ascending in wavelength
+            wave = sc.c / self.nu_grid[::-1]
+            cross_sec = self.sigma[::-1,:,:]
+
+            f.create_dataset(
+                'cross_sec', compression='gzip', 
+                data=np.log10(cross_sec*1e-4 + 1e-250) # [cm^2/molecule] -> log10([m^2/molecule])
+                )
+            f.create_dataset('wave', compression='gzip', data=wave) # [m]
+            
+            # Add 1e-250 to allow zero pressure
+            f.create_dataset('P', compression='gzip', data=np.log10(self.P_grid+1e-250)) # [log10(Pa)]
+            f.create_dataset('T', compression='gzip', data=self.T_grid) # [K]
