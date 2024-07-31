@@ -37,8 +37,8 @@ or (to plot the pRT-converted opacities):
 python figures.py
 ```
 
-## Downloading data (ExoMol only)
+## Downloading data (ExoMol+HITRAN/HITEMP)
 ```
 python main.py --download
 ```
-will download the `*.json` definition file, all transitions (`*.trans.bz2`), states (`*.states.bz2`) and partition function (`*.pf`) from the ExoMol database (see `inputs/example_ExoMol.py`). 
+for ExoMol, will download the `*.json` definition file, all transitions (`*.trans.bz2`), states (`*.states.bz2`) and partition function (`*.pf`) (see `inputs/example_ExoMol.py`). For HITRAN/HITEMP, will download any files in the `urls` list given in the input (see `inputs/example_HITEMP.py`). 
