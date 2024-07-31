@@ -1,5 +1,6 @@
 plots/
 logs/
-input_data/*/
+input_data/HITEMP/
+input_data/ExoMol/
 cross_sec_outputs/
 __pycache__/
