@@ -2,6 +2,7 @@ import numpy as np
 
 from pandas import read_fwf, read_csv
 import bz2
+import re
 import h5py
 
 from scipy.interpolate import interp1d
@@ -362,9 +363,14 @@ class ExoMol(LineList):
         if comp != 'bz2':
             comp = 'infer'
 
+        with bz2.open(file) as f:
+            # Infer column-widths
+            col_0 = re.findall('\s+\S+', str(f.readline()))
+            col_widths = [len(col) for col in col_0]
+
         # Load states
         states = read_fwf(
-            file, widths=(13,14,7,9), header=None, compression=comp
+            file, widths=col_widths[:4], header=None, compression=comp
             )
         states = np.array(states)
 
@@ -378,16 +384,17 @@ class ExoMol(LineList):
 
         print(f'\nComputing cross-sections from \"{file}\"')
 
-        # Column-widths in .trans file (!! can differ !!)
-        col_widths = [12,13,13,15]
-        col_idx = np.cumsum(col_widths)
-
         state_ID_u = []; state_ID_l = []; A = []
 
         with bz2.open(file) as f:
             
             # Compute opacities in chunks to prevent memory-overload
             for i, line in enumerate(f):
+                if i == 0:
+                    # Infer column-widths in .trans file
+                    sep_line_0 = re.findall('\s+\S+', str(line))
+                    col_widths = [len(col) for col in sep_line_0]
+                    col_idx = np.cumsum(col_widths)
 
                 # Access info on upper and lower states
                 state_ID_u.append(line[0:col_idx[0]])

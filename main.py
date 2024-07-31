@@ -7,9 +7,9 @@ from cross_sec import CrossSection
 from figures import Figures
 
 #import input.VALD_Fe as conf
-#import input.example_ExoMol as conf
+import input.example_ExoMol as conf
 #import input.example_HITEMP as conf
-import input.example_VALD as conf
+#import input.example_VALD as conf
 
 if __name__ == '__main__':
 
