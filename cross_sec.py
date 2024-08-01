@@ -162,15 +162,10 @@ class CrossSection:
 
         # Round to zero-th decimal
         nu_bin = np.around((nu_0-self.nu_min)/self.delta_nu).astype(int)
-        
+
         # Upper and lower indices of lines within bins
-        nu_bin_idx = [0]
-        for k in range(1, len(nu_bin)-1):
-            if nu_bin[k+1] > nu_bin[k]:
-                nu_bin_idx.append(k)
-        
-        nu_bin_idx.append(len(nu_bin))
-        nu_bin_idx = np.array(nu_bin_idx)
+        _, nu_bin_idx = np.unique(nu_bin, return_index=True)
+        nu_bin_idx    = np.append(nu_bin_idx, len(nu_bin))
 
         for k in range(len(nu_bin_idx)-1):
             # Cumulative sum of lines in bin
@@ -199,9 +194,6 @@ class CrossSection:
         coarse_inflation = delta_nu_coarse / self.delta_nu
         N_grid_coarse    = int(self.N_grid/coarse_inflation)
 
-        # Why create a new delta_nu?
-        #delta_nu_coarse = coarse_inflation * (self.nu_grid[1]-self.nu_grid[0])
-
         # Expand wavenumber grid slightly
         delta_nu_ends = delta_nu_coarse * (coarse_inflation-1)/2
         nu_grid_coarse = np.linspace(
@@ -219,7 +211,7 @@ class CrossSection:
         sigma = np.zeros_like(nu_grid)
         a = gamma_L / gamma_G # Gandhi et al. (2020)
 
-        # Only consider 200 lines at a time
+        # Only consider 'chunk_size' lines at a time
         N_chunks = int(np.ceil(len(S)/chunk_size))
 
         for ch in range(N_chunks):
@@ -254,7 +246,7 @@ class CrossSection:
             # Upper and lower index of these lines in sigma_ch
             f_l = np.maximum(0, cutoff_dist_n-1-idx_to_insert_ch)
             f_h = 2*cutoff_dist_n - 1 - np.maximum(0,idx_to_insert_ch+cutoff_dist_n-len(nu_grid))
-        
+
             # Loop over each line profile
             for i, sigma_i in enumerate(sigma_ch):
                 # Add line to total cross-section
@@ -275,7 +267,7 @@ class CrossSection:
             for idx_P, P in enumerate(self.P_grid):
                 for idx_T, T in enumerate(self.T_grid):
 
-                    pbar.set_postfix(P='{:.0e} bar'.format(P*1e-5), T='{:.0f} K'.format(T))
+                    pbar.set_postfix(P='{:.0e} bar'.format(P*1e-5), T='{:.0f} K'.format(T), refresh=False)
                     func(idx_P, P, idx_T, T, **kwargs)
                     pbar.update(1)
 
@@ -305,6 +297,21 @@ class CrossSection:
             # P-dependent shifts (HITRAN/HITEMP)
             nu_0 = nu_0 + delta_P*(100*sc.c)*(P*1e-5)
 
+            # Sort by the new wavenumbers
+            idx_sort = np.argsort(nu_0)
+            
+            nu_0  = nu_0[idx_sort]
+            E_low = E_low[idx_sort]
+            S_0   = S_0[idx_sort]
+
+            gamma_H2 = gamma_H2[idx_sort]
+            if n_H2 is not None:
+                n_H2 = n_H2[idx_sort]
+
+            if gamma_He is not None:
+                gamma_He = gamma_He[idx_sort]
+                n_He     = n_He[idx_sort]
+    
         # Get line-strengths and -widths
         S = self._line_strength(T, S_0, E_low, nu_0)
         gamma_L = self._gamma_N(nu_0, log_gamma_N) + \
@@ -335,7 +342,7 @@ class CrossSection:
         if len(S)==0:
             # No more lines
             return
-
+        
         self.contains_lines = True
 
         if debug:
@@ -352,13 +359,10 @@ class CrossSection:
             nu_grid_coarse = self.nu_grid
 
         delta_nu_coarse = nu_grid_coarse[1] - nu_grid_coarse[0]
-        #sigma_coarse    = np.zeros_like(nu_grid_coarse)
 
         # Indices where lines should be inserted
         idx_to_insert = np.searchsorted(nu_grid_coarse, nu_0) - 1
         
-        #a = gamma_L / gamma_G # Gandhi et al. (2020)
-
         # TODO: not ideal when Voigt-widths are different per line?
         # Wing cutoff [cm^-1] from given lambda-function
         cutoff = self.wing_cutoff(

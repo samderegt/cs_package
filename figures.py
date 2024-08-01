@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages # TODO: implement multi-page pdf-saves
 
 import pathlib
 
@@ -143,6 +144,8 @@ class pRT_Figures:
         else:
             self.wave_range = [self.wave_range]
 
+        self.save_as_multipage = (self.nrows > 10)
+
         wave_min = np.min(np.array(self.wave_range))
         wave_max = np.max(np.array(self.wave_range))
 
@@ -226,7 +229,7 @@ class pRT_Figures:
             xlabel=r'Wavelength ($\mu$m)', ylabel=r'Cross-section (cm$^2$/g)'
             )
         plt.tight_layout()
-        plt.savefig(save_file)
+        plt.savefig(save_file, dpi=200)
         plt.close()
 
     def plot_T(self, P=1, T=np.arange(500,2500,500), cmap='coolwarm', save_file='plots/pRT_T.pdf', ylim=None):
@@ -280,13 +283,24 @@ class pRT_Figures:
             xlabel=r'Wavelength ($\mu$m)', ylabel=r'Cross-section (cm$^2$/g)'
             )
         plt.tight_layout()
-        plt.savefig(save_file)
+        plt.savefig(save_file, dpi=200)
         plt.close()
 
 if __name__ == '__main__':
+    #wave_min, wave_max = 2.05, 2.47
+    #wave_min, wave_max = 2.05, 2.23
+    wave_min, wave_max = 2.23, 2.47
+    wave_range = [
+        (wave_i, wave_i+0.005) \
+        for wave_i in np.arange(wave_min, wave_max, 0.005)
+    ]
     F = pRT_Figures(
-        line_species='15NH3_CoYuTe', 
-        wave_range=[(1.9,2.5), (2.0,2.01), (2.3,2.31)], 
+        #line_species='15NH3_CoYuTe', 
+        #wave_range=[(1.9,2.5), (2.0,2.01), (2.3,2.31)], 
+        #line_species=['H2O_pokazatel_main_iso_Sam', 'H2O_pokazatel_main_iso'], 
+        #line_species=['CO_36_high_Sam', 'CO_36_high'], 
+        line_species=['CO_high_Sam', 'CO_high'], 
+        wave_range=wave_range, 
         )
-    F.plot_P(P=np.array([0.1]))
-    F.plot_T(T=np.array([1000.]))
+    #F.plot_P(P=np.array([0.1]))
+    F.plot_T(T=np.array([1000.]))#, save_file='plots/pRT_T.png')

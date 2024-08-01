@@ -347,14 +347,17 @@ class ExoMol(LineList):
         print(f'Reading states from \"{file}\"')
 
         # How pandas should handle compression
-        comp = pathlib.Path(file).suffix
+        comp = pathlib.Path(file).suffix.replace('.', '')
         if comp != 'bz2':
             comp = 'infer'
+            f = open(file)
+        else:
+            f = bz2.open(file)
 
-        with bz2.open(file) as f:
-            # Infer column-widths
-            col_0 = re.findall('\s+\S+', str(f.readline()))
-            col_widths = [len(col) for col in col_0]
+        # Infer column-widths
+        col_0 = re.findall('\s+\S+', str(f.readline()))
+        col_widths = [len(col) for col in col_0]
+        f.close()
 
         # Load states
         states = read_fwf(
@@ -368,7 +371,7 @@ class ExoMol(LineList):
 
         return states
     
-    def get_cross_sections(self, CS, file, show_pbar=True, debug=True):
+    def get_cross_sections(self, CS, file, show_pbar=True, debug=False):
 
         print(f'\nComputing cross-sections from \"{file}\"')
 
@@ -396,17 +399,14 @@ class ExoMol(LineList):
                         # (i.e. len(file) == X*N_lines_max)
                         return CS
 
-                    if debug:
+                    if not line:
+                        print(f'Computing for {i} transitions in final chunk')
+                    else:
                         print('Computing for chunk')
-
-                    if i > self.N_lines_max:
-                        print('Computing for final chunk')
-                    elif not line:
-                        print(f'Computing for {i} transitions')
                         
                     idx_u = np.searchsorted(self.states[:,0], np.array(state_ID_u, dtype=int))
                     idx_l = np.searchsorted(self.states[:,0], np.array(state_ID_l, dtype=int))
-                    
+
                     E_l = self.states[idx_l,1].astype(np.float64)
                     g_u = self.states[idx_u,2]
 
@@ -419,14 +419,16 @@ class ExoMol(LineList):
                     term2 = np.exp(-c2*E_l/CS.T_0) / CS.q_0
                     term3 = (1-np.exp(-c2*nu_0/CS.T_0))
                     S_0 = term1 * term2 * term3
-                    
+
                     # Add to lines to compute at the next iteration
                     nu_0 *= (100*sc.c) # Unit conversion
                     E_l  *= sc.h * (100*sc.c)
                     S_0  *= (100*sc.c)
 
-                    E_l = E_l.astype(np.float64)
-                    S_0 = S_0.astype(np.float64)
+                    idx_sort = np.argsort(nu_0)
+                    nu_0 = nu_0[idx_sort]
+                    E_l  = E_l[idx_sort].astype(np.float64)
+                    S_0  = S_0[idx_sort].astype(np.float64)
 
                     # Next iteration, compute opacities
                     CS.loop_over_PT_grid(
