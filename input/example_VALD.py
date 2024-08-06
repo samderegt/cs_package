@@ -17,7 +17,7 @@ files = dict(
     # !! Request .csv (units: cm^-1) with degeneracy g !!
     states = f'{input_dir}/NIST_levels_tab_delimited.tsv', 
     
-    tmp_output   = f'{cross_sec_outputs}'+'/tmp/Na_cross{}.hdf5', 
+    tmp_output   = f'{cross_sec_outputs}'+'/Na/tmp/Na_cross{}.hdf5', 
     final_output = f'{cross_sec_outputs}/Na/Na.hdf5', 
 )
 

@@ -1,20 +1,21 @@
 import numpy as np
-import argparse
 import time; import datetime
+import argparse
 
 import data
 from cross_sec import CrossSection
 from figures import Figures
 
-import input.ExoMol_CH4 as conf
-#import input.example_ExoMol as conf
-#import input.example_HITEMP as conf
-#import input.example_VALD as conf
-
 if __name__ == '__main__':
 
     # Instantiate the parser
     parser = argparse.ArgumentParser()
+
+    parser.add_argument(
+        'input_file', type=str, #required=True, 
+        help='Name of input file (e.g. input.example_ExoMol)', 
+        )
+
     parser.add_argument('--download', '-d', action='store_true')
     parser.add_argument('--cross_sections', '-cs', action='store_true')
     parser.add_argument('--save', '-s', action='store_true')
@@ -28,6 +29,10 @@ if __name__ == '__main__':
     parser.add_argument('--trans_idx_max', '-i_max', default=1, type=int)
     parser.add_argument('--show_pbar', action='store_true')
     args = parser.parse_args()
+
+    # Import input file as 'conf'
+    input_string = str(args.input_file).replace('.py', '').replace('/', '.')
+    conf = __import__(input_string, fromlist=[''])
 
     # Download from the ExoMol/HITEMP database
     if args.download:
@@ -94,15 +99,15 @@ if __name__ == '__main__':
         
     if args.plot:
         F = Figures(
-            D, wave_range=[(0.5,15.0), (2.,3.), (2.29,2.4), (2.332,2.339)]
+            D, wave_range=[(1/3,50.0), (1.05,1.35), (1.9,2.5), (2.29,2.4), (2.332,2.339)]
             )
         F.plot_P(
             T=1000, P=10**np.array([-4,-2,0,2], dtype=np.float64), 
-            ylim=(1e-30,1e-10)
+            ylim=(1e-28,1e-16)
             )
         F.plot_T(
             P=1, T=np.array([500,1000,1500,2000,2500]), 
-            ylim=(1e-30,1e-10)
+            ylim=(1e-28,1e-16)
             )
         
     if args.convert_to_pRT2:

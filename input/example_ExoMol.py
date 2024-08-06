@@ -20,7 +20,7 @@ files = dict(
     transitions        = [f'{input_dir}/27Al-1H__AloHa.trans.bz2'], 
     states             = f'{input_dir}/27Al-1H__AloHa.states.bz2', 
     
-    tmp_output   = f'{cross_sec_outputs}'+'/tmp/AlH_cross{}.hdf5', 
+    tmp_output   = f'{cross_sec_outputs}'+'/AlH/tmp/AlH_cross{}.hdf5', 
     final_output = f'{cross_sec_outputs}/AlH/AlH.hdf5', 
 )
 
@@ -30,13 +30,16 @@ pRT = dict(
     make_short_file = '/net/lem/data2/regt/pRT_opacities/input_data/make_short.f90', 
 )
 
-#P_grid = np.logspace(-5,2,8) # [bar]
-#T_grid = np.array(
-#    [300,400,500,600,700,800,900,1000,1200,1400,1600,1800,2000,2500,3000,3500,4000,4500,5000], dtype=np.float64
-#    ) # [K]
+P_grid = np.logspace(-5,2,8) # [bar]
+T_grid = np.array(
+    [300,400,500,600,700,800,900,1000,1200,1400,1600,1800,2000,2500,3000,3500,4000,4500,5000], dtype=np.float64
+    ) # [K]
 
-P_grid = np.array([0.1,1.,10.]) # [bar]
-T_grid = np.array([500,1000,2000], dtype=np.float64) # [K]
+#P_grid = 10**np.array([-6,3], dtype=np.float64)
+#T_grid = np.array([300,5000])
+
+#P_grid = np.array([0.1,1.,10.]) # [bar]
+#T_grid = np.array([500,1000,2000], dtype=np.float64) # [K]
 
 mass = 27.98948 # (in .json file)
 

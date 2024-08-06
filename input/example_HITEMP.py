@@ -25,7 +25,7 @@ files = dict(
     He_broadening = f'{input_dir}/12C-16O__He.broad', 
     transitions = f'{input_dir}/05_HITEMP2019.par.bz2', 
     
-    tmp_output   = f'{cross_sec_outputs}'+'/tmp/12CO_cross{}.hdf5', 
+    tmp_output   = f'{cross_sec_outputs}'+'/12CO/tmp/12CO_cross{}.hdf5', 
     final_output = f'{cross_sec_outputs}/12CO/12CO.hdf5', 
 )
 

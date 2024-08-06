@@ -87,6 +87,8 @@ class LineList:
 
     def convert_to_pRT2_format(self, out_dir, pRT_wave_file, make_short_file, debug=False):
 
+        print('\nConverting to pRT2 opacity format')
+
         # Load output
         wave_micron, sigma, P_grid, T_grid = self.load_final_output()
         wave_cm = wave_micron*1e-4
@@ -98,26 +100,32 @@ class LineList:
         pathlib.Path(out_dir).mkdir(parents=True, exist_ok=True)
 
         PTpaths = []
-        for idx_P, P in enumerate(P_grid):
-            for idx_T, T in enumerate(T_grid):
 
-                pRT_file = '{}/sigma_{:.0f}.K_{:.06f}bar.dat'.format(out_dir, T, P)
-                if debug:
-                    print(pRT_file)
-                
-                PTpaths.append(
-                    [f'{P}', f'{T}', pRT_file.split('/')[-1]]
-                )
-                
-                # Interpolate onto pRT's wavelength-grid
-                interp_func  = interp1d(
-                    wave_cm, sigma[:,idx_P,idx_T], bounds_error=False, fill_value=0.0
-                    )
-                interp_sigma = interp_func(pRT_wave)
+        # Make a nice progress bar
+        pbar_kwargs = dict(
+            total=len(P_grid)*len(T_grid), 
+            bar_format='{l_bar}{bar:20}{r_bar}{bar:-20b}', 
+        )
+        with tqdm(**pbar_kwargs) as pbar:
 
-                np.savetxt(
-                    pRT_file, np.column_stack((pRT_wave, interp_sigma))
-                )
+            # Loop over all PT-points
+            for idx_P, P in enumerate(P_grid):
+                for idx_T, T in enumerate(T_grid):
+
+                    pRT_file = '{}/sigma_{:.0f}.K_{:.06f}bar.dat'.format(out_dir, T, P)
+                    if debug:
+                        print(pRT_file)
+                    PTpaths.append([f'{P}', f'{T}', pRT_file.split('/')[-1]])
+                    
+                    # Interpolate onto pRT's wavelength-grid and save
+                    interp_func  = interp1d(
+                        wave_cm, sigma[:,idx_P,idx_T], 
+                        bounds_error=False, fill_value=0.0
+                        )
+                    interp_sigma = interp_func(pRT_wave)
+                    np.savetxt(pRT_file, np.column_stack((pRT_wave, interp_sigma)))
+                    
+                    pbar.update(1)
         
         # Create directory if not exist
         short_stream_dir = f'{out_dir}/short_stream/'
@@ -176,21 +184,19 @@ You may need to change the \"molparam\" value in \"molparam_id.txt\".')
 
         iterable = range(N_trans)
         if N_trans > 1:
-            iterable = tqdm(iterable)
+            iterable = tqdm(iterable, bar_format='{l_bar}{bar:20}{r_bar}{bar:-20b}')
         
         for i in iterable:
-
-            # Check if file exists
+            # Check if file exists, or is being written
             tmp_file_i = tmp_file.format(i)
-            if not pathlib.Path(tmp_file_i).is_file():
+            try:
+                # Opacity cross-sections for 1 .trans file
+                wave, sigma_i, P, T = self.load_hdf5_output(tmp_file_i)
+                # Add to total
+                sigma_tot += sigma_i
+            except:
                 # Move on to next file
                 continue
-
-            # Opacity cross-sections for 1 .trans file
-            wave, sigma_i, P, T = self.load_hdf5_output(tmp_file_i)
-
-            # Add to total
-            sigma_tot += sigma_i
 
         if append_to_existing:
             # Load previous output [m], [m^2], [Pa], [K]
@@ -400,9 +406,9 @@ class ExoMol(LineList):
                         return CS
 
                     if not line:
-                        print(f'Computing for {i} transitions in final chunk')
+                        print(f'Computing for {len(A)} transitions in final chunk')
                     else:
-                        print('Computing for chunk')
+                        print(f'Computing for {len(A)} transitions in chunk')
                         
                     idx_u = np.searchsorted(self.states[:,0], np.array(state_ID_u, dtype=int))
                     idx_l = np.searchsorted(self.states[:,0], np.array(state_ID_l, dtype=int))
