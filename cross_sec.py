@@ -123,6 +123,9 @@ class CrossSection:
             gamma_He *= (self.T_0/T)**n_He * (P*1e-5) * (100*sc.c) * VMR_He
             return gamma_H2 + gamma_He
 
+        gamma_vdW = gamma_H2
+        mask_valid = (gamma_vdW != 1) # != 10^0
+
         # Number densities
         N_tot = P / (sc.k*T) * (100)**(-3) # [cm^-3]
         N_H2 = N_tot * VMR_H2
@@ -133,15 +136,15 @@ class CrossSection:
             mass_pert = 2.016*sc.m_u # [kg]
 
             # Schweitzer et al. (1996) (omitting 1/c to get [s^-1])
-            gamma_vdW = 1.664461/2 * (sc.k*T * (1/self.mass+1/mass_pert))**(0.3) * \
-                self.C_6**(2/5) * N_tot # [s^-1]
+            gamma_vdW[~mask_valid] = 1.664461/2 * (sc.k*T * (1/self.mass+1/mass_pert))**(0.3) * \
+                self.C_6[~mask_valid]**(2/5) * N_tot # [s^-1]
             return gamma_vdW
             
         # Only one vdW-damping is given (from Kurucz)
         C_H2, C_He = 0.85, 0.42 # Diff. polarisability (Kurucz & Furenlid 1979)
 
         # Sharp & Burrows (2007) (omitting 1/c to get [s^-1])
-        gamma_vdW = gamma_H2/(4*np.pi) * (T/10000)**(0.3) * (C_H2*N_H2 + C_He*N_He) # [s^-1]
+        gamma_vdW = gamma_vdW/(4*np.pi) * (T/10000)**(0.3) * (C_H2*N_H2 + C_He*N_He) # [s^-1]
         return gamma_vdW
     
     def _gamma_N(self, nu_0, log_gamma_N=None):

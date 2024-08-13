@@ -40,7 +40,7 @@ mass = 22.989769
 # !! If following parameters are given, use vdW-prescription from Schweitzer+ (1996) !!
 # !! Only for alkali's !!
 E_ion = 381390.2 # [cm^-1]  https://physics.nist.gov/PhysRefData/ASD/ionEnergy.html
-Z = 0 # Electric charge
+Z = 1 # Electric charge (Lacy & Burrows 2023)
 
 # !! Ignores certain lines in 'transitions'-file !!
 #nu_0_to_ignore = [16956.1701, 16973.3661] # Na I optical resonance doublet
