@@ -580,11 +580,23 @@ class VALD(LineList):
         print(f'\nComputing cross-sections from \"{file}\"')
 
         # Read all transitions at once
-        trans = read_fwf(
-            file, header=1, skipfooter=6, 
-            colspecs=[(7,23),(24,36), (37,44), (45,51),(59,65)], 
-            )
-        trans = np.array(trans).astype(np.float64)
+        # trans = read_fwf(
+        #     file, header=1, skipfooter=6, 
+        #     colspecs=[(7,23),(24,36), (37,44), (45,51),(59,65)], 
+        #     )
+        # trans = np.array(trans).astype(np.float64)
+        with open(file, 'r') as f:
+            trans = np.array([
+                [
+                    float(line[7:23].strip()),
+                    float(line[24:36].strip()),
+                    float(line[37:44].strip()),
+                    float(line[45:51].strip()),
+                    float(line[59:65].strip())
+                ]
+                for line in f.readlines()[2:]  # Skip the header line and column names
+                if len(line.strip()) > 65  # Filter out footer or irrelevant lines
+            ], dtype=np.float64)
 
         # Oscillator strength
         gf = 10**trans[:,2]
