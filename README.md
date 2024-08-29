@@ -41,4 +41,4 @@ python figures.py
 ```
 python main.py input/XXX --download
 ```
-for ExoMol, will download the `*.json` definition file, all transitions (`*.trans.bz2`), states (`*.states.bz2`) and partition function (`*.pf`) (see `inputs/example_ExoMol.py`). For HITRAN/HITEMP, will download any files in the `urls` list given in the input (see `inputs/example_HITEMP.py`). 
+for ExoMol, will download the `*.json` definition file, all transitions (`*.trans.bz2`), states (`*.states.bz2`) and partition function (`*.pf`) (see `inputs/example_ExoMol_NaH.py`). For HITRAN/HITEMP, will download any files in the `urls` list given in the input (see `inputs/example_HITEMP.py`). 

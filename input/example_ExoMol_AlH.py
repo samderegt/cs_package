@@ -22,16 +22,19 @@ files = dict(
     final_output = f'{cross_sec_outputs}/AlH/AlH.hdf5', 
 )
 
+from data import Gharib_Nezhad_ea_2021_broadening as B
 broadening = dict(
     H2 = dict(
         VMR=0.85, 
+        gamma=B('AlH').gamma_H2, n=0.5,         # use 4th-order Pade equation (input=J_lower)
         #file=f'{input_dir}/27Al-1H__H2.broad', # read from file
-        gamma=0.1, n=0.5,                       # manually provide parameters
+        #gamma=0.1, n=0.5,                       # manually provide parameters
         ), 
     He = dict(
         VMR=0.15, 
+        gamma=B('AlH').gamma_He, n=0.5,         # use 4th-order Pade equation (input=J_lower)
         #file=f'{input_dir}/27Al-1H__He.broad', # read from file
-        gamma=0.1, n=0.5                        # manually provide parameters
+        #gamma=0.1, n=0.5                        # manually provide parameters
         ), 
 )
 

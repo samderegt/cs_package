@@ -455,7 +455,7 @@ class CrossSection:
         S = self._normalise_wing_cutoff(
             S, cutoff=cutoff*(100*sc.c), gamma_L=gamma_L
             )
-
+        
         # Number of grid points to consider (from line-center)
         cutoff_dist_n = int(np.around(cutoff*(100*sc.c)/delta_nu_coarse) + 2)
 
