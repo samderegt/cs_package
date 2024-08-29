@@ -113,39 +113,73 @@ class CrossSection:
         term1 = S_0 * (self.q_0/q) * np.exp(E_low/sc.k*(1/self.T_0-1/T))
         term2 = (1-np.exp(-sc.h*nu_0/(sc.k*T))) / (1-np.exp(-sc.h*nu_0/(sc.k*self.T_0)))
         return term1 * term2
+    
+    def _normalise_wing_cutoff(self, S, cutoff, gamma_L):
+        # Eq. A6 Lacy & Burrows (2023)
+        b = 1 / ((2/np.pi)*np.arctan(cutoff/gamma_L))
+        return S*b
+    
+    def _gamma_vdW(self, P, T, broad_per_trans, gamma_vdW=None):
+        
+        if gamma_vdW is not None:
+            valid_gamma_vdW = (gamma_vdW != 1) # != 10^0
 
-    def _gamma_vdW(
-            self, P, T, gamma_H2, n_H2, gamma_He=None, n_He=None, VMR_H2=0.85, VMR_He=0.15
-            ):
+            # Number densities
+            N_tot = P / (sc.k*T) * (100)**(-3) # [cm^-3]
 
-        if gamma_He is not None:
-            gamma_H2 *= (self.T_0/T)**n_H2 * (P*1e-5) * (100*sc.c) * VMR_H2 # [cm^-1] -> [s^-1]
-            gamma_He *= (self.T_0/T)**n_He * (P*1e-5) * (100*sc.c) * VMR_He
-            return gamma_H2 + gamma_He
+            alpha_H = 0.666793e-24
+            mass_H  = 1.00784 * 1.0e-3/sc.N_A # [kg]
+            reduced_mass_H_X = (mass_H*self.mass)/(mass_H + self.mass) # [kg]
 
-        gamma_vdW = gamma_H2
-        mask_valid = (gamma_vdW != 1) # != 10^0
+            gamma_tot = np.zeros_like(gamma_vdW)
 
-        # Number densities
-        N_tot = P / (sc.k*T) * (100)**(-3) # [cm^-3]
-        N_H2 = N_tot * VMR_H2
-        N_He = N_tot * VMR_He
+            for broad_i in broad_per_trans.values():
+                
+                VMR_i = broad_i.get('VMR', 1.0)
+                N_i   = VMR_i*N_tot # Perturber density [cm^-3]
+                
+                alpha_i = broad_i.get('alpha') # Polarisability [cm^3]
 
-        if hasattr(self, 'C_6'):
-            # Is alkali line, use different vdW-damping
-            mass_pert = 2.016*sc.m_u # [kg]
+                mass_i = broad_i.get('mass', 0.0)
+                mass_i = mass_i*1.0e-3/sc.N_A # Perturber mass [kg]
+                reduced_mass_i_X = (mass_i*self.mass)/(mass_i + self.mass) # [kg]
+                
+                C_i = broad_i.get('C') # Polarisability relative to hydrogen
 
-            # Schweitzer et al. (1996) (omitting 1/c to get [s^-1])
-            gamma_vdW[~mask_valid] = 1.664461/2 * (sc.k*T * (1/self.mass+1/mass_pert))**(0.3) * \
-                self.C_6[~mask_valid]**(2/5) * N_tot # [s^-1]
-            return gamma_vdW
+                if C_i is not None:
+                    # Eq. 19 (Sharp & Burrows 2007) [s^-1]
+                    gamma_tot[valid_gamma_vdW] += \
+                        gamma_vdW[valid_gamma_vdW]/(4*np.pi) * (T/10000)**(3/10) * N_i * C_i
+                elif (alpha_i is not None) and (mass_i != 0.):
+                    # Eq. 23 (Sharp & Burrows 2007) [s^-1]
+                    gamma_tot[valid_gamma_vdW] += \
+                        gamma_vdW[valid_gamma_vdW]/(4*np.pi) * (T/10000)**(3/10) * N_i * \
+                        (reduced_mass_H_X/reduced_mass_i_X)**(3/10) * \
+                        (alpha_i/alpha_H)**(2/5)
+                    
+                # Use Schweitzer et al. (1996) prescription for all other lines
+                C_6_i = broad_i.get('C_6') # vdW interaction constant [cm^6 s^-]
+                if C_6_i is None:
+                    continue
+                # [(cm^2 s^-2)^(3/10) * (cm^6 s^-1)^(2/5) * cm^-3] -> [s^-1]
+                gamma_tot[~valid_gamma_vdW] += \
+                    1.664461/2 * ((sc.k*100**2)*T/reduced_mass_i_X)**(3/10) * \
+                    C_6_i[~valid_gamma_vdW]**(2/5) * N_i
             
-        # Only one vdW-damping is given (from Kurucz)
-        C_H2, C_He = 0.85, 0.42 # Diff. polarisability (Kurucz & Furenlid 1979)
+            return gamma_tot
+        
+        # ExoMol or HITRAN/HITEMP
+        gamma_tot = 0
+        for broad_i in broad_per_trans.values():
+            
+            VMR_i   = broad_i.get('VMR', 1.0)
+            gamma_i = broad_i.get('gamma', 0.0)
+            n_i     = broad_i.get('n', 0.0)
 
-        # Sharp & Burrows (2007) (omitting 1/c to get [s^-1])
-        gamma_vdW = gamma_vdW/(4*np.pi) * (T/10000)**(0.3) * (C_H2*N_H2 + C_He*N_He) # [s^-1]
-        return gamma_vdW
+            gamma_tot += gamma_i * (100*sc.c) * VMR_i * \
+                (self.T_0/T)**n_i * (P*1e-5) # [cm^-1] -> [s^-1]
+
+        return gamma_tot
     
     def _gamma_N(self, nu_0, log_gamma_N=None):
 
@@ -329,7 +363,9 @@ class CrossSection:
             for idx_P, P in enumerate(self.P_grid):
                 for idx_T, T in enumerate(self.T_grid):
 
-                    pbar.set_postfix(P='{:.0e} bar'.format(P*1e-5), T='{:.0f} K'.format(T), refresh=False)
+                    pbar.set_postfix(
+                        P='{:.0e} bar'.format(P*1e-5), T='{:.0f} K'.format(T), refresh=False
+                        )
                     func(idx_P, P, idx_T, T, **kwargs)
                     pbar.update(1)
 
@@ -337,24 +373,14 @@ class CrossSection:
             self, 
             idx_P, P, idx_T, T, 
             nu_0, E_low, S_0, 
-            gamma_H2, n_H2=None, gamma_He=None, n_He=None, 
+            broad_per_trans=None, 
+            gamma_vdW=None, 
             log_gamma_N=None, 
             delta_P=None, 
             debug=False, 
             **kwargs
             ):
         
-        if not isinstance(gamma_H2, np.ndarray):
-            # Expand to array for each line
-            gamma_H2 *= np.ones_like(nu_0)
-            
-            if n_H2 is not None:
-                n_H2 *= np.ones_like(nu_0)
-
-            if gamma_He is not None:
-                gamma_He *= np.ones_like(nu_0)
-                n_He     *= np.ones_like(nu_0)
-
         if delta_P is not None:
             # P-dependent shifts (HITRAN/HITEMP)
             nu_0 = nu_0 + delta_P*(100*sc.c)*(P*1e-5)
@@ -365,19 +391,11 @@ class CrossSection:
             nu_0  = nu_0[idx_sort]
             E_low = E_low[idx_sort]
             S_0   = S_0[idx_sort]
-
-            gamma_H2 = gamma_H2[idx_sort]
-            if n_H2 is not None:
-                n_H2 = n_H2[idx_sort]
-
-            if gamma_He is not None:
-                gamma_He = gamma_He[idx_sort]
-                n_He     = n_He[idx_sort]
     
         # Get line-strengths and -widths
         S = self._line_strength(T, S_0, E_low, nu_0)
         gamma_L = self._gamma_N(nu_0, log_gamma_N) + \
-            self._gamma_vdW(P, T, gamma_H2, n_H2, gamma_He, n_He)
+            self._gamma_vdW(P, T, broad_per_trans, gamma_vdW)
         gamma_G = self._gamma_G(T, nu_0)
 
         # Select only lines within nu_grid
@@ -433,6 +451,11 @@ class CrossSection:
             )
         cutoff = np.minimum(cutoff, self.cutoff_max) # Use shortest cutoff-distance
 
+        # Account for lost line-strength due to wing cutoff
+        S = self._normalise_wing_cutoff(
+            S, cutoff=cutoff*(100*sc.c), gamma_L=gamma_L
+            )
+
         # Number of grid points to consider (from line-center)
         cutoff_dist_n = int(np.around(cutoff*(100*sc.c)/delta_nu_coarse) + 2)
 
@@ -441,10 +464,6 @@ class CrossSection:
         nu_line = np.concatenate((-nu_line[::-1], nu_line[1:])) # Make symmetric
 
         # Compute chunk_size line-profiles at once with fast indexing
-        '''
-        import time
-        time_A = time.time()
-        '''
         sigma_coarse = self._fast_line_profiles(
             nu_0, S, gamma_L, gamma_G, 
             nu_grid=nu_grid_coarse, 
@@ -454,11 +473,7 @@ class CrossSection:
             chunk_size=200, 
             )
         '''
-        time_B = time.time()
-
         sigma_G = gamma_G/np.sqrt(2)
-        
-        time_C = time.time()
         sigma_coarse = self._fast_line_profiles_voigt(
             nu_0, S, gamma_L, sigma_G, 
             nu_grid=nu_grid_coarse, 
@@ -467,11 +482,6 @@ class CrossSection:
             cutoff_dist_n=cutoff_dist_n, 
             chunk_size=200, 
             )
-        time_D = time.time()
-        
-        time_wofz = time_B-time_A
-        time_voigt = time_D-time_C
-        print((time_wofz-time_voigt)/time_wofz*100)
         '''
 
         # Add to total cross-sections

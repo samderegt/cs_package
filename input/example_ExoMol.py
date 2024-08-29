@@ -8,15 +8,13 @@ url_broad = [
     'https://www.exomol.com/db/AlH/27Al-1H/27Al-1H__H2.broad', 
     'https://www.exomol.com/db/AlH/27Al-1H/27Al-1H__He.broad'
 ]
-input_dir = '/net/lem/data2/regt/pRT_opacities/input_data/ExoMol/AlH/'
+input_dir = './input_data/ExoMol/AlH/'
 
 # Output-directory
-cross_sec_outputs = '/net/lem/data2/regt/pRT_opacities/cross_sec_outputs/'
+cross_sec_outputs = './cross_sec_outputs/'
 
 files = dict(
     partition_function = f'{input_dir}/27Al-1H__AloHa.pf', 
-    H2_broadening      = f'{input_dir}/27Al-1H__H2.broad', 
-    He_broadening      = f'{input_dir}/27Al-1H__He.broad', 
     transitions        = [f'{input_dir}/27Al-1H__AloHa.trans.bz2'], 
     states             = f'{input_dir}/27Al-1H__AloHa.states.bz2', 
     
@@ -24,22 +22,31 @@ files = dict(
     final_output = f'{cross_sec_outputs}/AlH/AlH.hdf5', 
 )
 
+broadening = dict(
+    H2 = dict(
+        VMR=0.85, 
+        #file=f'{input_dir}/27Al-1H__H2.broad', # read from file
+        gamma=0.1, n=0.5,                       # manually provide parameters
+        ), 
+    He = dict(
+        VMR=0.15, 
+        #file=f'{input_dir}/27Al-1H__He.broad', # read from file
+        gamma=0.1, n=0.5                        # manually provide parameters
+        ), 
+)
+
 pRT = dict(
     out_dir         = f'{cross_sec_outputs}/AlH/AlH_pRT2/', 
-    wave            = '/net/lem/data1/regt/pRT_opacities/data/wlen_petitRADTRANS.dat', 
-    make_short_file = '/net/lem/data2/regt/pRT_opacities/input_data/make_short.f90', 
+    wave            = './input_data/wlen_petitRADTRANS.dat', 
+    make_short_file = './input_data/make_short.f90', 
 )
 
 P_grid = np.logspace(-5,2,8) # [bar]
 T_grid = np.array(
-    [300,400,500,600,700,800,900,1000,1200,1400,1600,1800,2000,2500,3000,3500,4000,4500,5000], dtype=np.float64
+    #[300,400,500,600,700,800,900,1000,1200,1400,1600,1800,2000,2500,3000,3500,4000,4500,5000], dtype=np.float64
+    [500], dtype=np.float64
     ) # [K]
 
-#P_grid = 10**np.array([-6,3], dtype=np.float64)
-#T_grid = np.array([300,5000])
-
-#P_grid = np.array([0.1,1.,10.]) # [bar]
-#T_grid = np.array([500,1000,2000], dtype=np.float64) # [K]
 
 mass = 27.98948 # (in .json file)
 

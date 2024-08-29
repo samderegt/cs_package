@@ -2,10 +2,10 @@ import numpy as np
 
 database = 'VALD'
 
-input_dir = '/net/lem/data2/regt/pRT_opacities/input_data/VALD/Na/'
+input_dir = './input_data/VALD/Na/'
 
 # Output-directory
-cross_sec_outputs = '/net/lem/data2/regt/pRT_opacities/cross_sec_outputs/'
+cross_sec_outputs = './cross_sec_outputs/'
 
 files = dict(
     # https://www.astro.uu.se/valdwiki
@@ -23,17 +23,15 @@ files = dict(
 
 pRT = dict(
     out_dir         = f'{cross_sec_outputs}/Na/Na_pRT2/', 
-    wave            = '/net/lem/data1/regt/pRT_opacities/data/wlen_petitRADTRANS.dat', 
-    make_short_file = '/net/lem/data2/regt/pRT_opacities/input_data/make_short.f90', 
+    wave            = './input_data/wlen_petitRADTRANS.dat', 
+    make_short_file = './input_data/make_short.f90', 
 )
 
-#P_grid = np.logspace(-5,3,9) # [bar]
-#T_grid = np.array(
-#    [300,400,500,600,700,800,900,1000,1200,1400,1600,1800,2000,2500,3000,3500,4000,4500,5000], dtype=np.float64
-#    ) # [K]
-
-P_grid = np.array([0.1,1.,10.]) # [bar]
-T_grid = np.array([500,1000,2000], dtype=np.float64) # [K]
+P_grid = np.logspace(-5,2,8) # [bar]
+T_grid = np.array(
+    #[300,400,500,600,700,800,900,1000,1200,1400,1600,1800,2000,2500,3000,3500,4000,4500,5000], dtype=np.float64
+    [500], dtype=np.float64
+    ) # [K]
 
 mass = 22.989769
 
@@ -41,6 +39,15 @@ mass = 22.989769
 # !! Only for alkali's !!
 E_ion = 381390.2 # [cm^-1]  https://physics.nist.gov/PhysRefData/ASD/ionEnergy.html
 Z = 1 # Electric charge (Lacy & Burrows 2023)
+
+broadening = dict(
+    H2={'VMR':0.85, 'mass':2.01568, 'alpha':0.806e-24}, 
+    He={'VMR':0.15, 'mass':4.002602, 'alpha':0.204956e-24}
+
+    # (Kurucz & Furenlid 1979)
+    #H2={'VMR':0.85, 'C':0.85}, 
+    #He={'VMR':0.15, 'C':0.42}, 
+    )
 
 # !! Ignores certain lines in 'transitions'-file !!
 #nu_0_to_ignore = [16956.1701, 16973.3661] # Na I optical resonance doublet

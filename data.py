@@ -54,31 +54,65 @@ class LineList:
         self.mass = conf.mass * 1.0e-3/sc.N_A
 
         self.final_output_file = conf.files['final_output']
-        self.N_lines_max = getattr(conf, 'N_lines_max', 10_000_000)
-
-        try:
-            # Pressure-broadening parameters
-            self.gamma_H2, self.n_H2 = \
-                self._read_pressure_broad(conf.files['H2_broadening'])
-            self.gamma_He, self.n_He = \
-                self._read_pressure_broad(conf.files['He_broadening'])
-        except (KeyError, FileNotFoundError) as e:
-            self.gamma_H2, self.n_H2 = None, None
-            self.gamma_He, self.n_He = None, None
-            pass
-
-    def _read_pressure_broad(self, file):
+        self.N_lines_max = getattr(conf, 'N_lines_max', 10_000_000)           
 
         # Pressure-broadening parameters
-        br_file = read_fwf(file)
-        br_file = br_file.fillna(value=0)
-        
-        # gamma * (T0/T)^n * (P/1bar)
-        gamma = np.array(br_file)[:,1]
-        n     = np.array(br_file)[:,2]
+        self.broad = {}
+        if hasattr(conf, 'broadening'):
+            self._load_pressure_broad(conf.broadening)
 
-        # Average over all lines
-        return np.mean(gamma), np.mean(n)
+    def _load_pressure_broad(self, broadening):
+
+        for species_i, input_i in broadening.items():
+            
+            # Volume-mixing ratio
+            self.broad[species_i] = input_i.copy()
+
+            # Use gamma and T-exponent from input-dictionary
+            # gamma * (T0/T)^n * (P/1bar)
+            self.broad[species_i]['gamma'] = np.array([input_i.get('gamma', 0.0)])
+            self.broad[species_i]['n']     = np.array([input_i.get('n', 0.0)])
+
+            file_i = input_i.get('file')
+            try:
+                # Read broadening parameters from file
+                br = read_fwf(file_i, header=None)
+            except (FileNotFoundError, ValueError) as e:
+                # No broadening parameters in file
+                continue
+
+            label_i = np.array(br[0], dtype=str)
+            gamma_i, n_i = np.array(br[[1,2]]).T
+
+            # Currently only handles these 2 broadening diets
+            mask_label = (label_i == 'a0')
+            if not mask_label.any():
+                mask_label = (label_i == 'm0')
+                self.broad[species_i]['label'] = 'm0'
+
+            self.broad[species_i]['gamma'] = gamma_i[mask_label]
+            self.broad[species_i]['n']     = n_i[mask_label]
+
+            if (br.shape[0]==1) or (br.shape[1]==3):
+                # Single row or no quantum-number columns, 
+                # ignore quantum-number dependency
+                self.broad[species_i]['gamma'] = np.nanmean(
+                    self.broad[species_i]['gamma'], keepdims=True
+                    )
+                self.broad[species_i]['n'] = np.nanmean(
+                    self.broad[species_i]['n'], keepdims=True
+                    )
+                continue
+
+            # Total angular momentum quantum number
+            self.broad[species_i]['J'] = np.array(br[3])[mask_label]
+            if br.shape[1] == 4:
+                # No (more) quantum numbers in file
+                continue
+
+            # TODO: additional quantum numbers
+            ## Rotational quantum number
+            #self.broad[species_i]['K'] = np.array(br[4])
 
     def load_final_output(self):
         # Convert to [um], [cm^2/molecule], [bar], [K]
@@ -339,8 +373,13 @@ class ExoMol(LineList):
 
     def __init__(self, conf):
 
+        assert('H2_broadening' not in conf.files)
+        assert('He_broadening' not in conf.files)
+        assert(hasattr(conf, 'broadening'))
+
         # Instantiate the parent class
         super().__init__(conf)
+        print(self.broad)
 
         # Partition function
         self.Q = np.loadtxt(conf.files['partition_function'])
@@ -365,17 +404,61 @@ class ExoMol(LineList):
         col_widths = [len(col) for col in col_0]
         f.close()
 
-        # Load states
+        # Load states (ID, E, g, J)
         states = read_fwf(
             file, widths=col_widths[:4], header=None, compression=comp
             )
         states = np.array(states)
 
-        # Check that all states are read (necessary?)
+        # Check that all states are read
         assert(np.all(np.diff(states[:,0])==1))
         assert(states[0,0]==1)
 
         return states
+    
+    def _get_pressure_broad(self, J_lower, J_upper, chunk_size=100_000):
+
+        broad_per_trans = {}
+        for species_i, broad_i in self.broad.items():
+            
+            label_i = broad_i.get('label')
+            gamma_i = broad_i['gamma']
+            n_i     = broad_i['n']
+
+            # Use mean gamma/n if quantum-number not in broadening table
+            broad_per_trans[species_i] = dict(
+                VMR=broad_i['VMR'], 
+                gamma=np.nanmean(gamma_i)*np.ones_like(J_lower), 
+                n=np.nanmean(n_i)*np.ones_like(J_lower), 
+                )
+
+            J_i = broad_i.get('J')
+            if J_i is None:
+                # No quantum-number dependency, expand 
+                # to cover each transition
+                continue
+            
+            # Read in chunks to avoid memory overload
+            for idx_l in range(0, len(J_lower), chunk_size):
+                idx_h = min([idx_l+chunk_size,len(J_lower)])
+
+                J_to_match = J_lower[idx_l:idx_h]
+
+                if label_i == 'm0':
+                    # Check if transition in R-branch (i.e. lower J quantum 
+                    # number is +1 higher than upper state).
+                    # In that case, 4th column in .broad is |m|=J_l+1.
+                    delta_J = J_lower[idx_l:idx_h]-J_upper[idx_l:idx_h]
+                    J_to_match[(delta_J == +1)] += 1
+                
+                # Indices in .broad table corresponding to each transition
+                indices_J = np.argwhere(J_i[None,:]==J_to_match[:,None])
+
+                # Update each transition's broadening parameter
+                broad_per_trans[species_i]['gamma'][idx_l+indices_J[:,0]] = gamma_i[indices_J[:,1]]
+                broad_per_trans[species_i]['n'][idx_l+indices_J[:,0]]     = n_i[indices_J[:,1]]
+                
+        return broad_per_trans
     
     def get_cross_sections(self, CS, file, show_pbar=True, debug=False):
 
@@ -415,10 +498,13 @@ class ExoMol(LineList):
 
                     E_l = self.states[idx_l,1].astype(np.float64)
                     g_u = self.states[idx_u,2]
+                    
+                    J_l = self.states[idx_l,3].astype(int)
+                    J_u = self.states[idx_u,3].astype(int)
 
                     E_u = self.states[idx_u,1].astype(np.float64)
                     nu_0 = E_u - E_l
-                    nu_0 = nu_0.astype(np.float64)
+                    nu_0 = np.abs(nu_0.astype(np.float64))
 
                     # Compute line-strength at reference temperature
                     term1 = np.array(A, dtype=np.float64)*g_u / (8*np.pi*(100*sc.c)*nu_0**2)
@@ -436,12 +522,14 @@ class ExoMol(LineList):
                     E_l  = E_l[idx_sort].astype(np.float64)
                     S_0  = S_0[idx_sort].astype(np.float64)
 
+                    # Get J-specific broadening parameters
+                    broad_per_trans = self._get_pressure_broad(J_lower=J_l, J_upper=J_u)
+
                     # Next iteration, compute opacities
                     CS.loop_over_PT_grid(
                         func=CS.get_cross_sections, show_pbar=show_pbar, 
                         nu_0=nu_0, E_low=E_l, S_0=S_0, 
-                        gamma_H2=self.gamma_H2, n_H2=self.n_H2, 
-                        gamma_He=self.gamma_He, n_He=self.n_He, 
+                        broad_per_trans=broad_per_trans, 
                         )
                     
                     if not line:
@@ -482,8 +570,19 @@ class HITEMP(LineList):
 
     def __init__(self, conf):
 
+        assert('H2_broadening' not in conf.files)
+        assert('He_broadening' not in conf.files)
+        assert(hasattr(conf, 'broadening'))
+
         # Instantiate the parent class
         super().__init__(conf)
+        
+        # Remove any quantum-number dependency as we cannot 
+        # match ExoMol state IDs with HITRAN/HITEMP
+        for species_i, broad_i in self.broad.items():
+            self.broad[species_i]['gamma'] = np.nanmean([broad_i.get('gamma', 0.0)])
+            self.broad[species_i]['n']     = np.nanmean([broad_i.get('n', 0.0)])
+        print(self.broad)
 
         # Partition function
         self.Q = np.loadtxt(conf.files['partition_function'])
@@ -526,8 +625,7 @@ class HITEMP(LineList):
             CS.loop_over_PT_grid(
                 func=CS.get_cross_sections, show_pbar=show_pbar, 
                 nu_0=nu_0, E_low=E_low, S_0=S_0, 
-                gamma_H2=self.gamma_H2, n_H2=self.n_H2, 
-                gamma_He=self.gamma_He, n_He=self.n_He, 
+                broad_per_trans=self.broad, 
                 delta_P=np.zeros_like(nu_0) # !! for P-dependent shifts !!
                 )
         
@@ -573,18 +671,12 @@ class VALD(LineList):
             axis=-1 # Sum over states, keep T-axis
             )
         self.Q = np.concatenate((T[:,None], self.Q[:,None]), axis=-1)
-        print(self.Q)
 
     def get_cross_sections(self, CS, file, show_pbar=True):
 
         print(f'\nComputing cross-sections from \"{file}\"')
 
         # Read all transitions at once
-        # trans = read_fwf(
-        #     file, header=1, skipfooter=6, 
-        #     colspecs=[(7,23),(24,36), (37,44), (45,51),(59,65)], 
-        #     )
-        # trans = np.array(trans).astype(np.float64)
         with open(file, 'r') as f:
             trans = np.array([
                 [
@@ -618,26 +710,8 @@ class VALD(LineList):
         # Single vdW-damping given
         gamma_vdW = 10**trans[:,4] # [s^-1 cm^3]
 
-        if None not in [self.E_ion, self.Z]:
-            # If alkali (and E_ion/Z given), use Schweitzer+ (1996) vdW
-            alpha_H = 0.666793
-            alpha_p = 0.806
-            E_H     = 13.6 * 8065.73 # [cm^-1]
-            
-            E_low_cm = E_low/(sc.h*(100*sc.c))     # [cm^-1]
-            E_high_cm = E_low_cm + nu_0/(100*sc.c) # [cm^-1]
-
-            # Schweitzer et al. (1996) [cm^6 s^-1]
-            CS.C_6 = np.abs(
-                1.01e-32 * alpha_p/alpha_H * (self.Z+1)**2 * \
-                ((E_H/(self.E_ion-E_low_cm))**2 - (E_H/(self.E_ion-E_high_cm))**2)
-            )
-            mask_valid = np.ones_like(trans[:,4], dtype=bool)
-
-        else:
-            # If not alkali, use only transitions with valid vdW-damping
-            mask_valid = (trans[:,4] < 0.0)
-
+        mask_valid = np.ones(len(trans), dtype=bool)
+        
         if self.nu_0_to_ignore is not None:
             print('Masking transitions at:')
             # And remove any transitions on request
@@ -647,19 +721,43 @@ class VALD(LineList):
                 mask_nu_0_i = np.isclose(trans[:,0], nu_0_i)
                 mask_valid[mask_nu_0_i] = False
 
+        if None not in [self.E_ion, self.Z]:
+            # If alkali (and E_ion/Z given), use Schweitzer+ (1996) vdW
+            E_H     = 13.6 * 8065.73 # [cm^-1]
+            alpha_H = 0.666793e-24   # [cm^3]
+            
+            E_low_cm  = E_low/(sc.h*(100*sc.c))    # [cm^-1]
+            E_high_cm = E_low_cm + nu_0/(100*sc.c) # [cm^-1]
+
+            # Schweitzer et al. (1996) [cm^6 s^-1]
+            for species_i, broad_i in self.broad.items():
+                
+                alpha_i = broad_i['alpha'] # [cm^3]
+
+                # vdW interaction constant [cm^6 s^-1]
+                self.broad[species_i]['C_6'] = np.abs(
+                    1.01e-32 * alpha_i/alpha_H * (self.Z+1)**2 * (
+                        (E_H/(self.E_ion-E_low_cm))**2 - (E_H/(self.E_ion-E_high_cm))**2
+                        )
+                )[mask_valid]
+
+        else:
+            # If not alkali, use only transitions with valid vdW-damping
+            mask_valid = mask_valid & (trans[:,4] != 0.0)
+
         nu_0  = nu_0[mask_valid]
         E_low = E_low[mask_valid]
         S_0   = S_0[mask_valid]
 
         gamma_vdW = gamma_vdW[mask_valid]
         log_gamma_N = trans[mask_valid,3]
-        if hasattr(CS, 'C_6'):
-            CS.C_6 = CS.C_6[mask_valid]
 
         # Compute opacities
         CS.loop_over_PT_grid(
             func=CS.get_cross_sections, show_pbar=show_pbar, 
-            nu_0=nu_0, E_low=E_low, S_0=S_0, gamma_H2=gamma_vdW, 
+            nu_0=nu_0, E_low=E_low, S_0=S_0, 
+            broad_per_trans=self.broad, 
+            gamma_vdW=gamma_vdW, 
             log_gamma_N=log_gamma_N
             )
             
