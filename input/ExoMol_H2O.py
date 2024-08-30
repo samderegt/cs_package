@@ -8,16 +8,13 @@ url_broad = [
     'https://www.exomol.com/db/H2O/1H2-16O/1H2-16O__H2.broad', 
     'https://www.exomol.com/db/H2O/1H2-16O/1H2-16O__He.broad'
 ]
-input_dir = '/net/lem/data2/regt/pRT_opacities/input_data/ExoMol/H2O/'
+input_dir = './input_data/ExoMol/H2O/'
 
 # Output-directory
-cross_sec_outputs = '/net/lem/data2/regt/pRT_opacities/cross_sec_outputs/'
+cross_sec_outputs = './cross_sec_outputs/'
 
 files = dict(
     partition_function = f'{input_dir}/1H2-16O__POKAZATEL.pf', 
-    H2_broadening      = f'{input_dir}/1H2-16O__H2.broad', 
-    He_broadening      = f'{input_dir}/1H2-16O__He.broad', 
-
     transitions = [
         '{}/1H2-16O__POKAZATEL__{:05d}-{:05d}.trans.bz2'.format(input_dir, nu_min, nu_min+100) \
         for nu_min in np.arange(0, 41200, 100)
@@ -28,10 +25,19 @@ files = dict(
     final_output = f'{cross_sec_outputs}/H2O/H2O.hdf5', 
 )
 
+broadening = dict(
+    H2 = dict(
+        VMR=0.85, file=f'{input_dir}/1H2-16O__H2.broad', # read from file
+        ), 
+    He = dict(
+        VMR=0.15, file=f'{input_dir}/1H2-16O__He.broad', # read from file
+        ), 
+)
+
 pRT = dict(
     out_dir         = f'{cross_sec_outputs}/H2O/H2O_pRT2/', 
-    wave            = '/net/lem/data1/regt/pRT_opacities/data/wlen_petitRADTRANS.dat', 
-    make_short_file = '/net/lem/data2/regt/pRT_opacities/input_data/make_short.f90', 
+    wave            = './input_data/wlen_petitRADTRANS.dat', 
+    make_short_file = './input_data/make_short.f90', 
 )
 
 P_grid = np.logspace(-5,2,8) # [bar]
