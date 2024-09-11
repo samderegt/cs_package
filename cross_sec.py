@@ -24,6 +24,7 @@ class CrossSection:
 
         # Create wavenumber grid
         self._set_nu_grid(conf)
+        self.adaptive_nu_grid = getattr(conf, 'adaptive_nu_grid', True)
         
         # (P,T)-grid to compute cross-sections on
         self.P_grid = np.asarray(conf.P_grid) * 1e5 # [bar] -> [Pa]
@@ -369,10 +370,24 @@ class CrossSection:
                     func(idx_P, P, idx_T, T, **kwargs)
                     pbar.update(1)
 
+    def Allard_ea_2023_shift_width(self, P, T, A_w, b_w, A_d, b_d):
+        
+        N_tot = P / (sc.k*T) * (100)**(-3) # [cm^-3]
+
+        gamma_w = A_w['H2'] * T**b_w['H2'] * (N_tot*0.85/1e20) + \
+                  A_w['He'] * T**b_w['He'] * (N_tot*0.15/1e20)
+        
+        d = A_d['H2'] * T**b_d['H2'] * (N_tot*0.85/1e20) + \
+            A_d['He'] * T**b_d['He'] * (N_tot*0.15/1e20)
+        
+        gamma_w *= (100*sc.c) # [cm^-1] -> [s^-1]
+        d       *= (100*sc.c) # [cm^-1] -> [s^-1]
+        return gamma_w, d
+
     def get_cross_sections(
             self, 
             idx_P, P, idx_T, T, 
-            nu_0, E_low, S_0, 
+            nu_0_static, E_low, S_0, 
             broad_per_trans=None, 
             gamma_vdW=None, 
             log_gamma_N=None, 
@@ -380,6 +395,8 @@ class CrossSection:
             debug=False, 
             **kwargs
             ):
+        
+        nu_0 = nu_0_static.copy()
         
         if delta_P is not None:
             # P-dependent shifts (HITRAN/HITEMP)
@@ -398,6 +415,28 @@ class CrossSection:
             self._gamma_vdW(P, T, broad_per_trans, gamma_vdW)
         gamma_G = self._gamma_G(T, nu_0)
 
+        '''
+        for i, nu_0_i in enumerate([7983.67489, 8041.38112]):
+            mask_K_doublet = np.isclose(nu_0, nu_0_i*(100*sc.c))
+            if not mask_K_doublet.any():
+                continue
+
+            if i == 0:
+                # 4p ^{2}P_{3/2} - 5s
+                gamma_w, d = self.Allard_ea_2023_shift_width(
+                    P, T, A_w={'H2':0.352609, 'He':0.20819}, b_w={'H2':0.385961, 'He':0.452833}, 
+                    A_d={'H2':0.00158988, 'He':0.00194382}, b_d={'H2':0.949254, 'He':0.89691}, 
+                    )
+            if i == 1:
+                # 4p ^{2}P_{1/2} - 5s
+                gamma_w, d = self.Allard_ea_2023_shift_width(
+                    P, T, A_w={'H2':0.245926, 'He':0.121448}, b_w={'H2':0.447971, 'He':0.531718}, 
+                    A_d={'H2':0.00211668, 'He':0.000462539}, b_d={'H2':0.933563, 'He':1.07284}, 
+                    )
+            gamma_L[mask_K_doublet] = gamma_w + \
+                self._gamma_N(nu_0[mask_K_doublet], log_gamma_N[mask_K_doublet])
+            nu_0[mask_K_doublet] += d
+        '''
         # Select only lines within nu_grid
         nu_0, S, gamma_L, gamma_G = self._apply_mask(
             [nu_0,S,gamma_L,gamma_G], nu_0<self.nu_max
@@ -432,7 +471,10 @@ class CrossSection:
         gamma_V = 0.5346*gamma_L+np.sqrt(0.2166*gamma_L**2 + gamma_G**2)
 
         # Change to coarse wavenumber grid if lines are wide
-        delta_nu_coarse = np.mean(gamma_V) / 6
+        delta_nu_coarse = 0
+        if self.adaptive_nu_grid:
+            delta_nu_coarse = np.mean(gamma_V) / 6            
+
         if delta_nu_coarse > self.delta_nu:
             nu_grid_coarse = self._coarse_nu_grid(delta_nu_coarse)
         else:

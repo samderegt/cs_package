@@ -22,8 +22,8 @@ def load_data(conf):
         return HITEMP(conf)
     if conf.database.lower() == 'exomol':
         return ExoMol(conf)
-    if conf.database.lower() == 'vald':
-        return VALD(conf)
+    if conf.database.lower() in ['vald', 'kurucz']:
+        return VALD_Kurucz(conf)
 
     raise Exception(f'Database \"{conf.database}\" not recognised.')
 
@@ -230,18 +230,18 @@ class LineList:
             '# Molecular mass in amu', 
             '{:.3f}d0'.format(self.mass*sc.N_A*1e3), 
         ]
-        with open(f'{out_dir}/short_stream_lambs_mass.dat', 'a') as f:
+        with open(f'{out_dir}/short_stream_lambs_mass.dat', 'w') as f:
             f.write('\n'.join(short_stream_lambs_mass))
 
         sigma_list = list(np.array(PTpaths)[:,2])
-        with open(f'{out_dir}/sigma_list.ls', 'a') as f:
+        with open(f'{out_dir}/sigma_list.ls', 'w') as f:
             f.write('\n'.join(sigma_list))
 
         molparam_id = [
             '#### Species ID (A2) format', '06', 
             '#### molparam value', '1', 
         ]
-        with open(f'{short_stream_dir}/molparam_id.txt', 'a') as f:
+        with open(f'{short_stream_dir}/molparam_id.txt', 'w') as f:
             f.write('\n'.join(molparam_id))
 
         # Copy the make_short.f90 fortran-script over
@@ -289,7 +289,7 @@ You may need to change the \"molparam\" value in \"molparam_id.txt\".')
             # Load previous output [m], [m^2], [Pa], [K]
             existing_wave, existing_sigma, existing_P, existing_T \
                 = self.load_hdf5_output(self.final_output_file)
-
+            
             # Same wavelength-grid
             assert(len(wave)==len(existing_wave))
             #assert((wave==existing_wave).all())
@@ -358,7 +358,7 @@ class ExoMol(LineList):
     def download_data(cls, conf):
 
         url_def_json = conf.url_def_json
-        url_broad = conf.url_broad
+        url_broad = getattr(conf, 'url_broad', None)
         input_dir = conf.input_dir
 
         # Create destination directory
@@ -412,6 +412,9 @@ class ExoMol(LineList):
             for trans_file_i in trans_files:
                 print(trans_file_i)
 
+        if url_broad is None:
+            return
+        
         print('\nBroadening files:')
         broad_files = []
         # Download broadening files
@@ -464,8 +467,8 @@ class ExoMol(LineList):
         states = np.array(states)
 
         # Check that all states are read
-        assert(np.all(np.diff(states[:,0])==1))
-        assert(states[0,0]==1)
+        #assert(np.all(np.diff(states[:,0])==1))
+        #assert(states[0,0]==1)
 
         return states
     
@@ -595,7 +598,7 @@ class ExoMol(LineList):
                     # Next iteration, compute opacities
                     CS.loop_over_PT_grid(
                         func=CS.get_cross_sections, show_pbar=show_pbar, 
-                        nu_0=nu_0, E_low=E_l, S_0=S_0, 
+                        nu_0_static=nu_0, E_low=E_l, S_0=S_0, 
                         broad_per_trans=broad_per_trans, 
                         )
                     
@@ -691,19 +694,22 @@ class HITEMP(LineList):
             # Compute opacities
             CS.loop_over_PT_grid(
                 func=CS.get_cross_sections, show_pbar=show_pbar, 
-                nu_0=nu_0, E_low=E_low, S_0=S_0, 
+                nu_0_static=nu_0, E_low=E_low, S_0=S_0, 
                 broad_per_trans=self.broad, 
                 delta_P=np.zeros_like(nu_0) # !! for P-dependent shifts !!
                 )
         
         return CS
 
-class VALD(LineList):
+class VALD_Kurucz(LineList):
     
     def __init__(self, conf):
 
         # Instantiate the parent class
         super().__init__(conf)
+
+        # Different file-formats ['vald', 'kurucz']
+        self.database = conf.database.lower()
 
         # Compute partition function from state-info
         self._get_partition_from_NIST_states(conf.files['states'])
@@ -739,10 +745,8 @@ class VALD(LineList):
             )
         self.Q = np.concatenate((T[:,None], self.Q[:,None]), axis=-1)
 
-    def get_cross_sections(self, CS, file, show_pbar=True):
-
-        print(f'\nComputing cross-sections from \"{file}\"')
-
+    def _read_VALD_transitions(self, file):
+        
         # Read all transitions at once
         with open(file, 'r') as f:
             trans = np.array([
@@ -760,9 +764,57 @@ class VALD(LineList):
         # Oscillator strength
         gf = 10**trans[:,2]
 
+        # Transition energies
         nu_0  = trans[:,0] # [cm^-1]
         E_low = trans[:,1] # [cm^-1]
 
+        # Single vdW-damping given
+        gamma_vdW = 10**trans[:,4] # [s^-1 cm^3]
+        
+        # Log radiative/natural damping
+        log_gamma_N = trans[:,3]
+
+        return nu_0, E_low, gf, gamma_vdW, log_gamma_N
+
+    def _read_Kurucz_transitions(self, file):
+        
+        # Read all transitions at once
+        trans = read_fwf(
+            file, widths=(11,7,6,12,5,1,10,12,5,1,10,6,6,6), header=None, 
+            )
+        trans = np.array(trans)
+
+        # Oscillator strength
+        gf = 10**trans[:,1].astype(np.float64)
+
+        # Transition energies
+        E_low  = trans[:,3].astype(np.float64) # [cm^-1]
+        E_high = trans[:,7].astype(np.float64) # [cm^-1]
+        
+        # Kurucz line list are sorted by parity?
+        nu_0  = np.abs(E_high-E_low)
+        E_low = np.min(np.concatenate((E_low[None,:],E_high[None,:])), axis=0)
+
+        # Single vdW-damping given
+        gamma_vdW = 10**trans[:,13].astype(np.float64) # [s^-1 cm^3]
+        
+        # Log radiative/natural damping
+        log_gamma_N = trans[:,11].astype(np.float64)
+
+        print(nu_0[0], E_low[0], gf[0], gamma_vdW[0], log_gamma_N[0])
+        return nu_0, E_low, gf, gamma_vdW, log_gamma_N
+
+    def get_cross_sections(self, CS, file, show_pbar=True):
+
+        print(f'\nComputing cross-sections from \"{file}\"')
+
+        if self.database == 'vald':
+            nu_0, E_low, gf, gamma_vdW, log_gamma_N = \
+                self._read_VALD_transitions(file)
+        elif self.database == 'kurucz':
+            nu_0, E_low, gf, gamma_vdW, log_gamma_N = \
+                self._read_Kurucz_transitions(file)
+        
         # Compute line-strength at reference temperature
         term1 = (gf * np.pi*e**2) / ((1e3*sc.m_e)*(100*sc.c)**2)
         term2 = np.exp(-c2*E_low/CS.T_0) / CS.q_0
@@ -774,10 +826,7 @@ class VALD(LineList):
         E_low *= sc.h * (100*sc.c) # [cm^-1] -> [kg m^2 s^-2] or [J]
         S_0   *= (100*sc.c)        # [cm^-1/(molec. cm^-2)] -> [s^-1/(molec. cm^-2)]
 
-        # Single vdW-damping given
-        gamma_vdW = 10**trans[:,4] # [s^-1 cm^3]
-
-        mask_valid = np.ones(len(trans), dtype=bool)
+        mask_valid = np.ones(len(S_0), dtype=bool)
         
         if self.nu_0_to_ignore is not None:
             print('Masking transitions at:')
@@ -785,7 +834,7 @@ class VALD(LineList):
             for nu_0_i in np.array([self.nu_0_to_ignore]).flatten():
                 print(f'{nu_0_i} cm^-1 ({1e4/nu_0_i} um)')
                 # Set matching wavenumbers to 'invalid'
-                mask_nu_0_i = np.isclose(trans[:,0], nu_0_i)
+                mask_nu_0_i = np.isclose(nu_0, nu_0_i*(100*sc.c))
                 mask_valid[mask_nu_0_i] = False
 
         if None not in [self.E_ion, self.Z]:
@@ -810,19 +859,19 @@ class VALD(LineList):
 
         else:
             # If not alkali, use only transitions with valid vdW-damping
-            mask_valid = mask_valid & (trans[:,4] != 0.0)
+            mask_valid = mask_valid & (gamma_vdW != 1.0)
 
         nu_0  = nu_0[mask_valid]
         E_low = E_low[mask_valid]
         S_0   = S_0[mask_valid]
 
-        gamma_vdW = gamma_vdW[mask_valid]
-        log_gamma_N = trans[mask_valid,3]
+        gamma_vdW   = gamma_vdW[mask_valid]
+        log_gamma_N = log_gamma_N[mask_valid]
 
         # Compute opacities
         CS.loop_over_PT_grid(
             func=CS.get_cross_sections, show_pbar=show_pbar, 
-            nu_0=nu_0, E_low=E_low, S_0=S_0, 
+            nu_0_static=nu_0, E_low=E_low, S_0=S_0, 
             broad_per_trans=self.broad, 
             gamma_vdW=gamma_vdW, 
             log_gamma_N=log_gamma_N

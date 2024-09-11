@@ -4,3 +4,4 @@ input_data/HITEMP/
 input_data/ExoMol/
 cross_sec_outputs/
 __pycache__/
+input_data/wlen_petitRADTRANS.dat
