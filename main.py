@@ -1,6 +1,7 @@
 import numpy as np
 import time; import datetime
 import argparse
+import sys
 
 import data
 from cross_sec import CrossSection
@@ -28,12 +29,30 @@ if __name__ == '__main__':
     parser.add_argument('--trans_idx_min', '-i_min', default=0, type=int)
     parser.add_argument('--trans_idx_max', '-i_max', default=1, type=int)
     parser.add_argument('--show_pbar', action='store_true')
+    
+    # optionally, overwrite the P and T values of conf
+    parser.add_argument('--P', type=float, default=None)
+    parser.add_argument('--T', type=float, default=None)
     args = parser.parse_args()
 
     # Import input file as 'conf'
     input_string = str(args.input_file).replace('.py', '').replace('/', '.')
     conf = __import__(input_string, fromlist=[''])
+    
+    if (args.P is not None) and (args.T is not None):
+        conf.P_grid = np.array([args.P])
+        conf.T_grid = np.array([args.T])
+        # update tmp file to avoid overwriting
+        conf.files['tmp_output'] = conf.files['tmp_output'].replace('.hdf5', f'_P{args.P:.0e}_T{args.T:.0f}.hdf5')
+    
+        print(f' Updated values of PT grid, saving to file: {conf.files["tmp_output"]}')
+        # check im tmp_output file exists, skip if it does
+        import pathlib
+        if pathlib.Path(conf.files['tmp_output']).exists():
+            print(' File already exists, skipping...')
+            sys.exit()
 
+    
     # Download from the ExoMol/HITEMP database
     if args.download:
         if conf.database.lower() == 'exomol':
@@ -106,7 +125,7 @@ if __name__ == '__main__':
             ylim=(1e-28,1e-16)
             )
         F.plot_T(
-            P=1, T=np.array([500,1000,1500,2000,2500]), 
+            P=1, T=np.array([1500,2000,2500,3000, 4000]), 
             ylim=(1e-28,1e-16)
             )
         
