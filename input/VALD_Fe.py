@@ -1,42 +1,72 @@
 import numpy as np
 
-database = 'VALD'
+database = 'Kurucz'
+
+species = 'Fe'
+input_dir = f'./input_data/VALD/{species}/'
+
+# Output-directory
+cross_sec_outputs = f'./cross_sec_outputs/{species}/'
 
 files = dict(
-    transitions = '/net/lem/data2/regt/pRT_opacities/input_data/VALD/Fe/Fe_I_transitions.txt', 
-    states = '/net/lem/data2/regt/pRT_opacities/input_data/VALD/Fe/energy1.tsv', 
+    # https://www.astro.uu.se/valdwiki
+    # 'Extract element' | 'short format' | 'FTP'
+    # !! make sure to get units in vacuum (cm^-1) !!
+    transitions = f'{input_dir}/Kurucz_transitions.txt',
+
+    # https://physics.nist.gov/PhysRefData/ASD/levels_form.html 
+    # !! Request .csv (units: cm^-1) with degeneracy g !!
+    states = f'{input_dir}/NIST_levels_tab_delimited.tsv', 
     
-    tmp_output = '/net/lem/data2/regt/pRT_opacities/cross_sec_outputs/tmp/fe_cross{}.hdf5', 
-    final_output = '/net/lem/data2/regt/pRT_opacities/cross_sec_outputs/fe/fe_vald.hdf5', 
+    tmp_output_dir = f'{cross_sec_outputs}/tmp/', 
+    final_output = f'{cross_sec_outputs}/{species}.hdf5', 
 )
 
 pRT = dict(
-    out_dir = '/net/lem/data2/regt/pRT_opacities/cross_sec_outputs/fe/fe_vald_pRT2/', 
-    wave = '/net/lem/data1/regt/pRT_opacities/data/wlen_petitRADTRANS.dat', 
-    make_short_file = '/net/lem/data2/regt/petitRADTRANS_opa_source/make_short.f90', 
+    out_dir         = f'{cross_sec_outputs}/{species}_pRT2/', 
+    wave            = './input_data/wlen_petitRADTRANS.dat', 
+    make_short_file = './input_data/make_short.f90', 
 )
 
-#P_grid = np.logspace(-5,2,8) # [bar]
-#T_grid = np.array(
-#    [300,400,500,600,700,800,900,1000,1200,1400,1600,1800,2000,2500,3000,3500,4000,4500,5000], dtype=np.float64
-#    ) # [K]
-
-P_grid = np.logspace(-1,2,4) # [bar]
-T_grid = np.array(
-    [500,1000,2000,3000,4000,5000], dtype=np.float64
-    ) # [K]
+#P_grid = np.logspace(-6,3,10) # [bar]
+T_grid = np.array([
+    #81.14113604736988, 
+    #109.60677358237457, 
+    #148.05862230132453, 
+    #200., 
+    #270.163273706, 
+    #364.940972297, 
+    #492.968238926, 
+    #665.909566306, 
+    #899.521542126, 
+    #1215.08842295, 
+    #1641.36133093, 
+    #2217.17775249, 
+    #2995., 
+    1000.,2000.
+    ]) # [K]
+P_grid = np.array([1.]) # [bar]
 
 mass = 55.845
 
-#wave_min = 1.0/3.0; wave_max = 50.0 # um
-wave_min = 0.3; wave_max = 50.0 # um
-#wave_min = 2.0; wave_max = 3.0
-delta_nu = 0.01
+broadening = dict(
+    H2={'VMR':0.85, 'mass':2.01568, 'alpha':0.806e-24}, 
+    He={'VMR':0.15, 'mass':4.002602, 'alpha':0.204956e-24}
 
-local_cutoff  = 0.35
-global_cutoff = 1e-45
+    # (Kurucz & Furenlid 1979)
+    #H2={'VMR':0.85, 'C':0.85}, 
+    #He={'VMR':0.15, 'C':0.42}, 
+    )
+
+wave_min = 1.0/3.0; wave_max = 50.0 # [um]
+#wave_min = 1.0; wave_max = 1.5 # [um]
+delta_nu = 0.01 # [cm^-1]
+adaptive_nu_grid = False
+
+# Line-strength cutoffs
+local_cutoff  = None
+global_cutoff = None
 
 # gamma_V [cm^-1], P [bar]
-#wing_cutoff = lambda gamma_V, _: 25*gamma_V # Gandhi et al. (2020)
-#wing_cutoff = lambda _, P: 25 if P<=200 else 100 # Gharib-Nezhad et al. (2024)
-wing_cutoff = lambda gamma_V, P: 100 # Is this okay?
+#wing_cutoff = lambda gamma_V, P: 25 if P<=200 else 100 # Gharib-Nezhad et al. (2024)
+wing_cutoff = lambda gamma_V, P: 10 # !! Might want different wing-cutoff for atoms !!
