@@ -1,28 +1,31 @@
 import numpy as np
 
-database = 'VALD'
+#database = 'VALD'
+database = 'Kurucz'
 
-input_dir = './input_data/VALD/Na/'
+species = 'Na'
+input_dir = f'./input_data/VALD/{species}/'
 
 # Output-directory
-cross_sec_outputs = './cross_sec_outputs/'
+cross_sec_outputs = f'./cross_sec_outputs/{species}/'
 
 files = dict(
     # https://www.astro.uu.se/valdwiki
     # 'Extract element' | 'short format' | 'FTP'
     # !! make sure to get units in vacuum (cm^-1) !!
-    transitions = f'{input_dir}/VALD_transitions.txt',
+    #transitions = f'{input_dir}/VALD_transitions.txt',
+    transitions = f'{input_dir}/Kurucz_transitions.txt',
 
     # https://physics.nist.gov/PhysRefData/ASD/levels_form.html 
     # !! Request .csv (units: cm^-1) with degeneracy g !!
     states = f'{input_dir}/NIST_levels_tab_delimited.tsv', 
     
-    tmp_output   = f'{cross_sec_outputs}'+'/Na/tmp/Na_cross{}.hdf5', 
-    final_output = f'{cross_sec_outputs}/Na/Na.hdf5', 
+    tmp_output   = f'{cross_sec_outputs}/tmp/{species}'+'_cross{}.hdf5', 
+    final_output = f'{cross_sec_outputs}/{species}.hdf5', 
 )
 
 pRT = dict(
-    out_dir         = f'{cross_sec_outputs}/Na/Na_pRT2/', 
+    out_dir         = f'{cross_sec_outputs}/{species}/{species}_pRT2/', 
     wave            = './input_data/wlen_petitRADTRANS.dat', 
     make_short_file = './input_data/make_short.f90', 
 )
@@ -30,7 +33,7 @@ pRT = dict(
 P_grid = np.logspace(-5,2,8) # [bar]
 T_grid = np.array(
     #[300,400,500,600,700,800,900,1000,1200,1400,1600,1800,2000,2500,3000,3500,4000,4500,5000], dtype=np.float64
-    [500], dtype=np.float64
+    [3000], dtype=np.float64
     ) # [K]
 
 mass = 22.989769

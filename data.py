@@ -801,7 +801,6 @@ class VALD_Kurucz(LineList):
         # Log radiative/natural damping
         log_gamma_N = trans[:,11].astype(np.float64)
 
-        print(nu_0[0], E_low[0], gf[0], gamma_vdW[0], log_gamma_N[0])
         return nu_0, E_low, gf, gamma_vdW, log_gamma_N
 
     def get_cross_sections(self, CS, file, show_pbar=True):
@@ -814,7 +813,16 @@ class VALD_Kurucz(LineList):
         elif self.database == 'kurucz':
             nu_0, E_low, gf, gamma_vdW, log_gamma_N = \
                 self._read_Kurucz_transitions(file)
-        
+       
+        # Sort by increasing wavenumber
+        idx = np.argsort(nu_0)
+
+        nu_0  = nu_0[idx]
+        E_low = E_low[idx]
+        gf    = gf[idx]
+        gamma_vdW   = gamma_vdW[idx]
+        log_gamma_N = log_gamma_N[idx]
+                
         # Compute line-strength at reference temperature
         term1 = (gf * np.pi*e**2) / ((1e3*sc.m_e)*(100*sc.c)**2)
         term2 = np.exp(-c2*E_low/CS.T_0) / CS.q_0
@@ -834,7 +842,7 @@ class VALD_Kurucz(LineList):
             for nu_0_i in np.array([self.nu_0_to_ignore]).flatten():
                 print(f'{nu_0_i} cm^-1 ({1e4/nu_0_i} um)')
                 # Set matching wavenumbers to 'invalid'
-                mask_nu_0_i = np.isclose(nu_0, nu_0_i*(100*sc.c))
+                mask_nu_0_i = np.isclose(nu_0, nu_0_i*(100*sc.c), rtol=1e-8)
                 mask_valid[mask_nu_0_i] = False
 
         if None not in [self.E_ion, self.Z]:
