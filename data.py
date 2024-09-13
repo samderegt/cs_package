@@ -4,7 +4,6 @@ from pandas import read_fwf, read_csv
 import bz2
 import re
 import h5py
-import requests
 
 from scipy.interpolate import interp1d
 import scipy.constants as sc
@@ -12,6 +11,7 @@ import scipy.constants as sc
 c2 = 1.438777      # cgs: [cm K]
 e = 4.80320425e-10 # cgs: [cm^3/2 g^1/2 s^-1]
 
+import itertools
 import pathlib
 import wget
 import json
@@ -28,12 +28,21 @@ def load_data(conf):
 
     raise Exception(f'Database \"{conf.database}\" not recognised.')
 
-def wget_if_not_exist(url, out_dir):
-    out_name = out_dir + url.split('/')[-1]
+def wget_if_not_exist(url, out_dir, out_name=None):
+    
+    if out_name is None:
+        out_name = out_dir + url.split('/')[-1]
+
     if pathlib.Path(out_name).is_file():
         print(f'File \"{out_name}\" already exists, skipping download')
         return out_name
-    return wget.download(url, out=out_dir)
+    
+    # Download and rename
+    tmp_file = wget.download(url, out=out_dir)
+    tmp_file = pathlib.Path(tmp_file)
+
+    out_name = tmp_file.rename(out_name)
+    return str(out_name)
 
 class Gharib_Nezhad_ea_2021_broadening:
 
@@ -70,7 +79,7 @@ class Gharib_Nezhad_ea_2021_broadening:
             self.b_He = [-6.9735e+05, +4.7758e+03, +5.1317e+02, -1.2128e+01]
 
         else:
-            raise ValueError(f"Species \'{species}\' not recognised.")
+            raise ValueError(f'Species \"{species}\" not recognised.')
             
     def Pade_equation(self, J, a, b):
         term1 = a[0] + a[1]*J + a[2]*J**2 + a[3]*J**3
@@ -87,16 +96,23 @@ class Gharib_Nezhad_ea_2021_broadening:
 class LineList:
     
     @classmethod
-    def load_hdf5_output(cls, file):
+    def load_hdf5_output(cls, file, datasets_to_read=['wave','cross_sec','P','T']):
 
+        data = []
         with h5py.File(file, 'r') as f:
-            # Make an array [...]
-            wave  = f['wave'][...] # [m]
-            sigma = 10**f['cross_sec'][...] - 1e-250 # [m^2]
-            P = 10**f['P'][...] - 1e-250 # [Pa]
-            T = f['T'][...] # [K]
+            for key_i in datasets_to_read:
+                
+                # Make an array [...]
+                if key_i in ['wave', 'T']:
+                    # [m] or [K]
+                    data.append(f[key_i][...])
+                elif key_i in ['cross_sec', 'P']:
+                    # [m^2] or [Pa]
+                    data.append(10**f[key_i][...]-1e-250)
+                else:
+                    raise KeyError(f'Dataset \"{key_i}\" not in \"{file}\"')
 
-        return wave, sigma, P, T
+        return data
     
     def __init__(self, conf):
 
@@ -110,8 +126,6 @@ class LineList:
         self.broad = {}
         if hasattr(conf, 'broadening'):
             self._load_pressure_broad(conf.broadening)
-            
-        self.conf = conf
 
     def _load_pressure_broad(self, broadening):
 
@@ -174,9 +188,26 @@ class LineList:
         # Convert to [um], [cm^2/molecule], [bar], [K]
         wave, sigma, P, T = self.load_hdf5_output(self.final_output_file)
         return wave*1e6, sigma*1e4, P*1e-5, T
-    
-    
+
     def convert_to_pRT2_format(self, out_dir, pRT_wave_file, make_short_file, debug=False, ncpus=1):
+
+        def process_PT_point(P, T, wave_cm, sigma_PT, pRT_wave, out_dir, debug=False):
+            """
+            Helper function to parallelize the interpolation to pRT2 and saving for each (P,T) point.
+            """
+            pRT_file = f'{out_dir}/sigma_{T:.0f}.K_{P:.06f}bar.dat'
+            if debug:
+                print(pRT_file)
+
+            # Interpolate onto pRT's wavelength-grid
+            interp_func = interp1d(wave_cm, sigma_PT, bounds_error=False, fill_value=0.0)
+            interp_sigma = interp_func(pRT_wave)
+
+            # Save the result to the file
+            np.savetxt(pRT_file, np.column_stack((pRT_wave, interp_sigma)))
+
+            return P, T, pRT_file.split('/')[-1]
+
         print('\nConverting to pRT2 opacity format')
 
         # Load output
@@ -195,8 +226,8 @@ class LineList:
         tasks = []
         for idx_P, P in enumerate(P_grid):
             for idx_T, T in enumerate(T_grid):
-                sigma_slice = sigma[:, idx_P, idx_T]
-                tasks.append((P, T, wave_cm, sigma_slice, pRT_wave, out_dir, debug))
+                sigma_PT = sigma[:, idx_P, idx_T]
+                tasks.append((P, T, wave_cm, sigma_PT, pRT_wave, out_dir, debug))
 
         # Make a nice progress bar
         pbar_kwargs = dict(
@@ -206,6 +237,7 @@ class LineList:
 
         if ncpus > 1:
             # Use multiprocessing with the specified number of CPUs
+            import multiprocessing as mp
             with mp.Pool(ncpus) as pool:
                 with tqdm(**pbar_kwargs) as pbar:
                     for result in pool.starmap(process_PT_point, tasks):
@@ -219,7 +251,6 @@ class LineList:
                     PTpaths.append(result)
                     pbar.update(1)
 
-        # return PTpaths
         # Create directory if not exist
         short_stream_dir = f'{out_dir}/short_stream/'
         pathlib.Path(short_stream_dir).mkdir(parents=True, exist_ok=True)
@@ -265,168 +296,63 @@ class LineList:
             file_to_remove.unlink()
 
         if isinstance(self, HITEMP):
-            print("\n"+'#'*50)
-            print('Database is HITRAN/HITEMP, so line-strengths are scaled by solar isotope ratio.\n\
-            You may need to change the \"molparam\" value in \"molparam_id.txt\".')
-            print('#'*50)
-
-    def convert_to_pRT2_format_old(self, out_dir, pRT_wave_file, make_short_file, debug=False):
-
-        print('\nConverting to pRT2 opacity format')
-
-        # Load output
-        wave_micron, sigma, P_grid, T_grid = self.load_final_output()
-        wave_cm = wave_micron*1e-4
-
-        # Load pRT wavelength-grid
-        pRT_wave = np.genfromtxt(pRT_wave_file)
-
-        # Create directory if not exist
-        pathlib.Path(out_dir).mkdir(parents=True, exist_ok=True)
-
-        PTpaths = []
-
-        # Make a nice progress bar
-        pbar_kwargs = dict(
-            total=len(P_grid)*len(T_grid), 
-            bar_format='{l_bar}{bar:20}{r_bar}{bar:-20b}', 
-        )
-        with tqdm(**pbar_kwargs) as pbar:
-
-            # Loop over all PT-points
-            for idx_P, P in enumerate(P_grid):
-                for idx_T, T in enumerate(T_grid):
-
-                    pRT_file = '{}/sigma_{:.0f}.K_{:.06f}bar.dat'.format(out_dir, T, P)
-                    if debug:
-                        print(pRT_file)
-                    PTpaths.append([f'{P}', f'{T}', pRT_file.split('/')[-1]])
-                    
-                    # Interpolate onto pRT's wavelength-grid and save
-                    interp_func  = interp1d(
-                        wave_cm, sigma[:,idx_P,idx_T], 
-                        bounds_error=False, fill_value=0.0
-                        )
-                    interp_sigma = interp_func(pRT_wave)
-                    np.savetxt(pRT_file, np.column_stack((pRT_wave, interp_sigma)))
-                    
-                    pbar.update(1)
-        
-        # Create directory if not exist
-        short_stream_dir = f'{out_dir}/short_stream/'
-        pathlib.Path(short_stream_dir).mkdir(parents=True, exist_ok=True)
-
-        # Save pressures/temperatures corresponding to each file
-        np.savetxt(
-            f'{short_stream_dir}/PTpaths.ls', np.array(PTpaths), delimiter=' ', fmt='%s'
-        )
-
-        # Create pRT input-files
-        short_stream_lambs_mass = [
-            '# Minimum wavelength in cm', '0.3d-4', 
-            '# Maximum wavelength in cm', '28d-4', 
-            '# Molecular mass in amu', 
-            '{:.3f}d0'.format(self.mass*sc.N_A*1e3), 
-        ]
-        with open(f'{out_dir}/short_stream_lambs_mass.dat', 'w') as f:
-            f.write('\n'.join(short_stream_lambs_mass))
-
-        sigma_list = list(np.array(PTpaths)[:,2])
-        with open(f'{out_dir}/sigma_list.ls', 'w') as f:
-            f.write('\n'.join(sigma_list))
-
-        molparam_id = [
-            '#### Species ID (A2) format', '06', 
-            '#### molparam value', '1', 
-        ]
-        with open(f'{short_stream_dir}/molparam_id.txt', 'w') as f:
-            f.write('\n'.join(molparam_id))
-
-        # Copy the make_short.f90 fortran-script over
-        import shutil
-        shutil.copy(make_short_file, dst=f'{out_dir}/make_short.f90')
-
-        # Make executable and run
-        import subprocess
-        subprocess.run(['gfortran', '-o', f'{out_dir}/make_short', f'{out_dir}/make_short.f90'])
-        subprocess.call('./make_short', cwd=f'{out_dir}')
-
-        # Remove temporary files (on pRT's low-res wavelengths)
-        for file_to_remove in np.array(PTpaths)[:,2]:
-            file_to_remove = pathlib.Path(f'{out_dir}/{file_to_remove}')
-            file_to_remove.unlink()
-
-        if isinstance(self, HITEMP):
-            print("\n"+'#'*50)
+            print('\n'+'#'*50)
             print('Database is HITRAN/HITEMP, so line-strengths are scaled by solar isotope ratio.\n\
 You may need to change the \"molparam\" value in \"molparam_id.txt\".')
             print('#'*50)
 
-    def combine_cross_sections(self, tmp_file, N_trans, append_to_existing=False):
+    def combine_cross_sections(self, tmp_dir, N_trans, append_to_existing=False):
 
         print(f'\nCombining temporary cross-sections to file \"{self.final_output_file}\"')
-        sigma_tot = 0
 
-        iterable = range(N_trans)
-        if N_trans > 1:
-            iterable = tqdm(iterable, bar_format='{l_bar}{bar:20}{r_bar}{bar:-20b}')
-        
-        for i in iterable:
-            # Check if file exists, or is being written
-            tmp_file_i = tmp_file.format(i)
-            try:
-                # Opacity cross-sections for 1 .trans file
-                wave, sigma_i, P, T = self.load_hdf5_output(tmp_file_i)
-                # Add to total
-                sigma_tot += sigma_i
-            except:
-                # Move on to next file
-                continue
+        # Check compatibility of files before combining
+        print(f'Looking in directory \"{tmp_dir}\"')
+        tmp_files = sorted(pathlib.Path(tmp_dir).glob('*.hdf5'))
 
-        if append_to_existing:
-            # Load previous output [m], [m^2], [Pa], [K]
-            existing_wave, existing_sigma, existing_P, existing_T \
-                = self.load_hdf5_output(self.final_output_file)
+        all_PT = []
+        for i, tmp_file_i in enumerate(tmp_files):
             
-            # Same wavelength-grid
-            assert(len(wave)==len(existing_wave))
-            #assert((wave==existing_wave).all())
+            wave_i, P_i, T_i = self.load_hdf5_output(
+                tmp_file_i, datasets_to_read=['wave','P','T']
+                )
+            
+            for P_ij, T_ij in itertools.product(P_i, T_i):
+                all_PT.append([P_ij,T_ij])
+            
+            if i == 0:
+                wave = wave_i.copy()            
+            assert (wave == wave_i).all(), 'Wavelengths do not match'
 
-            # Save in a new output file
-            self.final_output_file = \
-                self.final_output_file.replace('.hdf5', '_new.hdf5')
+        # Check if PT grid is rectangular
+        all_PT = np.array(all_PT)
+        unique_P = np.unique(all_PT[:,0])
+        for i, P_i in enumerate(unique_P):
+            unique_T_i = all_PT[all_PT[:,0]==P_i,1]
+            if i == 0:
+                unique_T = unique_T_i.copy()
+            
+            assert (unique_T == unique_T_i).all(), 'PT-grid is not rectangular'
 
-            if np.array_equal(existing_P, P):
-                # Equal along pressure-axis, insert new temperatures
-                is_new_T = ~np.isin(T,existing_T)
-                T = np.append(existing_T, T[is_new_T])
+        unique_P = np.sort(unique_P)
+        unique_T = np.sort(unique_T)
 
-                # Add to cross-sections and sort
-                sigma_tot = np.append(
-                    existing_sigma, sigma_tot[:,:,is_new_T], axis=2
-                    )
-                sigma_tot = sigma_tot[:,:,np.argsort(T)]
-                T = np.sort(T)
+        # Combine all files into a single cross-section array
+        sigma_tot = np.zeros((len(wave),len(unique_P),len(unique_T)), dtype=np.float64)
+        for i, tmp_file_i in enumerate(tmp_files):
+            
+            # Load the opacity of each file
+            sigma_i, P_i, T_i = self.load_hdf5_output(
+                tmp_file_i, datasets_to_read=['cross_sec','P','T']
+                )
+            
+            # Insert this opacity-array in the total array
+            for j, P_ij in enumerate(P_i):
+                idx_P = np.argwhere((unique_P == P_ij)).flatten()[0]
 
-            elif np.array_equal(existing_T, T):
-                # Equal along temperature-axis, insert new pressures
-                is_new_P = ~np.isin(P,existing_P)
-                P = np.append(existing_P, P[is_new_P])
+                for k, T_ik in enumerate(T_i):
+                    idx_T = np.argwhere((unique_T == T_ik)).flatten()[0]
+                    sigma_tot[:,idx_P,idx_T] += sigma_i[:,j,k]
 
-                # Add to cross-sections and sort
-                sigma_tot = np.append(
-                    existing_sigma, sigma_tot[:,is_new_P,:], axis=1
-                    )
-                sigma_tot = sigma_tot[:,np.argsort(P),:]
-                P = np.sort(P)
-
-            else:
-                raise ValueError(
-                    f'\
-Opacity grid should remain rectangular, but file \"{self.final_output_file}\" has:\n\
-P_grid: {existing_P}\nT_grid: {existing_T}\nwhile file \"{tmp_file_i}\" has:\n\
-P_grid: {P}\nT_grid: {T}.'
-                    )
 
         # Create directory if not exist
         pathlib.Path(self.final_output_file).parent.mkdir(parents=True, exist_ok=True)
@@ -444,97 +370,13 @@ P_grid: {P}\nT_grid: {T}.'
             dat2.attrs['units'] = 'm'
 
             # Add 1e-250 to allow zero pressure
-            dat3 = f.create_dataset('P', compression='gzip', data=np.log10(P+1e-250))
+            dat3 = f.create_dataset('P', compression='gzip', data=np.log10(unique_P+1e-250))
             dat3.attrs['units'] = 'log(Pa)'
 
-            dat4 = f.create_dataset('T', compression='gzip', data=T)
+            dat4 = f.create_dataset('T', compression='gzip', data=unique_T)
             dat4.attrs['units'] = 'K'
-            
-    def combine_cross_sections_grid(self):
 
-        print(f'\nCombining temporary cross-sections to file \"{self.final_output_file}\"')
-        
-        # find all files with same format as final_output_file
-        tmp_dir = pathlib.Path(self.final_output_file).parent / 'tmp'
-        # print(f' Looking in directory \"{tmp_dir}\"')
-        tmp_files = sorted(pathlib.Path(tmp_dir).glob('*.hdf5'))
-        print(f' Found {len(tmp_files)} temporary files')
-        
-        P_list, T_list = ([] for _ in range(2))
-        
-        for i, tmp_file_i in enumerate(tmp_files):
-            P_str, T_str = tmp_file_i.stem.split('_')[-2:]
-            # print(P_str, T_str)
-            P_list.append(float(P_str[1:]) * 1e5) # [bar] -> [Pa]
-            T_list.append(float(T_str[1:])) # [K]
-            
-            if i == 0:
-                # check the extracted P, T match the content of the file
-                # WARNING: filenames use P in [bar] and content in [Pa]
-                wave, sigma_i, P, T = self.load_hdf5_output(tmp_file_i)
-                assert (P_list[-1] == P), f'P_list[-1] = {P_list[-1]} != P = {P}'
-                assert (T_list[-1] == T), f'T_list[-1] = {T_list[-1]} != T = {T}'
-                N_wave = len(wave)
-                parent_dir = tmp_file_i.parent
-                print(f' Parent directory = {parent_dir}')
-                file_root = '_'.join(tmp_file_i.stem.split('_')[:-2])
-                print(f' File root = {file_root}')
-                
-        P_unique = np.unique(P_list)
-        T_unique = np.unique(T_list)
-        sigmas = np.zeros((N_wave, len(P_unique), len(T_unique)))
-        
-        for i, P_i in enumerate(P_unique):
-            for j, T_j in enumerate(T_unique):
-                file_ij = parent_dir / f'{file_root}_P{P_i*1e-5:.0e}_T{T_j:.0f}.hdf5'
-                wave_ij, sigma_ij, P_ij, T_ij = self.load_hdf5_output(file_ij)
-                assert (P_i == P_ij), f'P_i = {P_i} != P_ij = {P_ij}'
-                assert (T_j == T_ij), f'T_j = {T_j} != T_ij = {T_ij}'
-                assert (wave == wave_ij).all(), 'Wavelengths do not match'
-                sigmas[:,i,j] = np.squeeze(sigma_ij)
-                
-                    
-        print(f' Combined sigmas shape = {sigmas.shape}')
-        # Save in a single file
-        with h5py.File(self.final_output_file, 'w') as f:
-            # Rounding to save memory
-            dat1 = f.create_dataset(
-                'cross_sec', compression='gzip', 
-                data=np.around(np.log10(sigmas+1e-250),decimals=3)
-                )
-            dat1.attrs['units'] = 'log(m^2/molecule)'
-            
-            dat2 = f.create_dataset('wave', compression='gzip', data=wave)
-            dat2.attrs['units'] = 'm'
-            
-            # Add 1e-250 to allow zero pressure
-            dat3 = f.create_dataset('P', compression='gzip', data=np.log10(P_unique+1e-250))
-            dat3.attrs['units'] = 'log(Pa)'
-            
-            dat4 = f.create_dataset('T', compression='gzip', data=T_unique)
-            dat4.attrs['units'] = 'K'
-            
-        print(f' Saved to {self.final_output_file}')
-        
-        
-def process_PT_point(P, T, wave_cm, sigma_slice, pRT_wave, out_dir, debug=False):
-    """
-    Helper function to parallelize the interpolation to pRT2 and saving for each (P, T) point.
-    """
-    pRT_file = f'{out_dir}/sigma_{T:.0f}.K_{P:.06f}bar.dat'
-    if debug:
-        print(pRT_file)
 
-    # Interpolate onto pRT's wavelength-grid
-    interp_func = interp1d(wave_cm, sigma_slice, bounds_error=False, fill_value=0.0)
-    interp_sigma = interp_func(pRT_wave)
-
-    # Save the result to the file
-    np.savetxt(pRT_file, np.column_stack((pRT_wave, interp_sigma)))
-
-    return P, T, pRT_file.split('/')[-1]
-    
-    
 class ExoMol(LineList):
 
     @classmethod
@@ -618,7 +460,7 @@ class ExoMol(LineList):
 
         # Instantiate the parent class
         super().__init__(conf)
-        print(self.broad)
+        #print(self.broad)
 
         # Partition function
         self.Q = np.loadtxt(conf.files['partition_function'])
@@ -835,7 +677,7 @@ class HITEMP(LineList):
         for species_i, broad_i in self.broad.items():
             self.broad[species_i]['gamma'] = np.nanmean([broad_i.get('gamma', 0.0)])
             self.broad[species_i]['n']     = np.nanmean([broad_i.get('n', 0.0)])
-        print(self.broad)
+        #print(self.broad)
 
         # Partition function
         self.Q = np.loadtxt(conf.files['partition_function'])
@@ -885,8 +727,74 @@ class HITEMP(LineList):
         return CS
 
 class VALD_Kurucz(LineList):
+
+    directory_path = pathlib.Path(__file__).parent.resolve()
+    atoms_info = read_csv(directory_path/'atoms_info.csv', index_col=0)
+
+    @classmethod
+    def download_data(cls, conf):
+
+        # Create destination directory
+        input_dir = conf.input_dir
+        pathlib.Path(input_dir).mkdir(parents=True, exist_ok=True)
+
+        # Download the NIST energy levels
+        # Validate the element input
+        element = conf.species
+        assert(element in cls.atoms_info.index)
+        
+        # Construct the NIST URL for downloading energy levels
+        url = f'https://physics.nist.gov/cgi-bin/ASD/energy1.pl?de=0&\
+spectrum={element}+I&submit=Retrieve+Data&units=0&format=3&output=0&page_size=15&\
+multiplet_ordered=0&conf_out=on&term_out=on&level_out=on&unc_out=1&j_out=on&g_out=on&\
+lande_out=on&biblio=on&temp='
+        
+        # If no filename is provided, use the default naming convention
+        states_file = conf.files.get(
+            'states', f'{input_dir}/NIST_levels_tab_delimited.tsv'
+            )
+        
+        states_file = wget_if_not_exist(url, out_dir=input_dir, out_name=states_file)
+        print()
+        print('States file:')
+        print(pathlib.Path(states_file).absolute())
+        print()
+
+        if conf.database.lower() == 'vald':
+            return
+        
+        # Download the Kurucz transitions
+        atomic_number    = cls.atoms_info.loc[element, 'number']
+        ionisation_state = getattr(conf, 'ionisation_state', 0)
+
+        # Format the atomic number and ionization state for constructing the URL
+        atom_id = f'{atomic_number:02d}{ionisation_state:02d}'
+        print(f'{element} has ID {atom_id}')
+
+        # If no filename is provided, use the default naming convention
+        trans_file = conf.files.get(
+            'trans', f'{input_dir}/Kurucz_transitions.txt'
+            )
+        
+        # Try different extension
+        for extension in ['pos','all']:
+            url = f'http://kurucz.harvard.edu/atoms/{atom_id}/gf{atom_id}.{extension}'
+            try:
+                trans_file = wget_if_not_exist(url, out_dir=input_dir, out_name=trans_file)
+                continue
+            except:
+                pass
+        print()
+        print('Transitions file:')
+        print(pathlib.Path(trans_file).absolute())
+        print()
     
     def __init__(self, conf):
+
+        species = getattr(conf, 'species', None)
+        if species in self.atoms_info.index:
+            conf.mass = self.atoms_info.loc[species,'mass']
+            print(f'Using mass from \"atoms_info.csv\": {conf.mass}')
 
         # Instantiate the parent class
         super().__init__(conf)
@@ -906,10 +814,6 @@ class VALD_Kurucz(LineList):
 
     def _get_partition_from_NIST_states(self, file, T=np.arange(1,5001+1e-6,1)):
 
-        # check if file exists, otherwise download it
-        if not pathlib.Path(file).exists():
-            self.download_NIST_states(self.conf, filename=file)
-            
         print(f'Reading states from \"{file}\"')
 
         # Load states
@@ -965,10 +869,6 @@ class VALD_Kurucz(LineList):
 
     def _read_Kurucz_transitions(self, file):
         
-        # check if file exists, otherwise download it
-        if not pathlib.Path(file).exists():
-            self.download_Kurucz_transitions(self.conf, filename=file)
-        
         # Read all transitions at once
         trans = read_fwf(
             file, widths=(11,7,6,12,5,1,10,12,5,1,10,6,6,6), header=None, 
@@ -992,7 +892,6 @@ class VALD_Kurucz(LineList):
         # Log radiative/natural damping
         log_gamma_N = trans[:,11].astype(np.float64)
 
-        print(nu_0[0], E_low[0], gf[0], gamma_vdW[0], log_gamma_N[0])
         return nu_0, E_low, gf, gamma_vdW, log_gamma_N
 
     def get_cross_sections(self, CS, file, show_pbar=True):
@@ -1069,140 +968,3 @@ class VALD_Kurucz(LineList):
             )
             
         return CS
-        
-        
-    @classmethod
-    def download_Kurucz_transitions(self, conf, element=None, ionization_state=0,
-                                    filename=None):
-        """
-        Downloads the atomic line list for the given atom and ionization state from the Kurucz database.
-        
-        Parameters:
-        atom (str): The chemical symbol of the element (e.g., 'Fe', 'Mg').
-        ionization_state (int): Ionization state of the atom (default is 0 for neutral atoms).
-
-        Returns:
-        str: The filename of the downloaded line list if successful, None otherwise.
-        """
-        
-        input_dir = pathlib.Path(conf.input_dir)
-        input_dir.mkdir(parents=True, exist_ok=True)
-        
-        element = element or conf.species
-
-        try:
-            # Get the atomic number corresponding to the element's symbol
-            atomic_number = atomic_symbol_to_number.get(element)
-
-            if atomic_number is None:
-                raise ValueError(f"Invalid atomic symbol: {element}")
-            
-            # Format the atomic number and ionization state for constructing the URL
-            atom_id = f"{atomic_number:02d}{ionization_state:02d}"
-            print(f'{element} has ID {atom_id}')
-
-            # Construct the URL for downloading the line list
-            url = f"http://kurucz.harvard.edu/atoms/{atom_id}/gf{atom_id}.lines"
-            
-            # File name to save the downloaded content, based on the atom's symbol
-            if filename is None:
-                filename = input_dir / f"{element}_kurucz_transitions.txt"
-
-            # Send an HTTP GET request to the URL to download the file
-            response = requests.get(url)
-            response.raise_for_status()  # Raise an error for unsuccessful requests
-
-            # Save the downloaded content to a local file
-            with open(filename, 'wb') as f:
-                f.write(response.content)
-
-            print(f"Downloaded {filename}")
-            return filename
-
-        except requests.exceptions.HTTPError as http_err:
-            print(f"HTTP error occurred: {http_err}")
-        except Exception as e:
-            print(f"Failed to download atomic line list: {e}")
-        
-        return None
-
-    @classmethod
-    def download_NIST_states(self, conf, element=None, filename=None):
-        """
-        Downloads energy levels for the given element from the NIST Atomic Spectra Database (ASD).
-        
-        Parameters:
-        element (str): The chemical symbol of the element (e.g., 'K' for potassium).
-        filename (str, optional): The name of the file to save the downloaded data. 
-                                Defaults to "{element}_NIST_levels_tab_delimited.tsv" if not provided.
-
-        Returns:
-        str: The name of the file where the data is saved.
-        
-        Raises:
-        ValueError: If the element symbol is invalid or empty.
-        requests.exceptions.RequestException: If the download fails due to an HTTP error.
-        """
-        input_dir = pathlib.Path(conf.input_dir)
-        input_dir.mkdir(parents=True, exist_ok=True)
-        
-        element = element or conf.species
-        
-        # Validate the element input
-        if not element or not element.isalpha():
-            raise ValueError("Invalid element symbol. Please provide a valid chemical symbol.")
-        
-        # Construct the NIST URL for downloading energy levels
-        url = (
-            f"https://physics.nist.gov/cgi-bin/ASD/energy1.pl?"
-            f"de=0&spectrum={element}+I&submit=Retrieve+Data&units=0&format=3&output=0&page_size=15"
-            "&multiplet_ordered=0&conf_out=on&term_out=on&level_out=on&unc_out=1&j_out=on&g_out=on"
-            "&lande_out=on&biblio=on&temp="
-        )
-        
-        try:
-            # Send an HTTP GET request to download the data
-            response = requests.get(url)
-            response.raise_for_status()  # Raise an exception if the request was unsuccessful
-
-            # If no filename is provided, use the default naming convention
-            if filename is None:
-                filename = input_dir / f"{element}_NIST_levels_tab_delimited.tsv"
-
-            # Save the downloaded content to a local file
-            with open(filename, 'wb') as f:
-                f.write(response.content)
-
-            print(f"Downloaded {filename}")
-            return filename
-
-        except requests.exceptions.HTTPError as http_err:
-            print(f"HTTP error occurred: {http_err}")
-            return None
-        except Exception as e:
-            print(f"An error occurred: {e}")
-            return None
-
-
-
-
-# Atomic number to symbol mapping, needed for kurucz download
-atomic_number_to_symbol = {
-    1: 'H', 2: 'He', 3: 'Li', 4: 'Be', 5: 'B', 6: 'C', 7: 'N', 8: 'O', 9: 'F', 10: 'Ne',
-    11: 'Na', 12: 'Mg', 13: 'Al', 14: 'Si', 15: 'P', 16: 'S', 17: 'Cl', 18: 'Ar', 19: 'K',
-    20: 'Ca', 21: 'Sc', 22: 'Ti', 23: 'V', 24: 'Cr', 25: 'Mn', 26: 'Fe', 27: 'Co', 28: 'Ni',
-    29: 'Cu', 30: 'Zn', 31: 'Ga', 32: 'Ge', 33: 'As', 34: 'Se', 35: 'Br', 36: 'Kr', 37: 'Rb',
-    38: 'Sr', 39: 'Y', 40: 'Zr', 41: 'Nb', 42: 'Mo', 43: 'Tc', 44: 'Ru', 45: 'Rh', 46: 'Pd',
-    47: 'Ag', 48: 'Cd', 49: 'In', 50: 'Sn', 51: 'Sb', 52: 'Te', 53: 'I', 54: 'Xe', 55: 'Cs',
-    56: 'Ba', 57: 'La', 58: 'Ce', 59: 'Pr', 60: 'Nd', 61: 'Pm', 62: 'Sm', 63: 'Eu', 64: 'Gd',
-    65: 'Tb', 66: 'Dy', 67: 'Ho', 68: 'Er', 69: 'Tm', 70: 'Yb', 71: 'Lu', 72: 'Hf', 73: 'Ta',
-    74: 'W', 75: 'Re', 76: 'Os', 77: 'Ir', 78: 'Pt', 79: 'Au', 80: 'Hg', 81: 'Tl', 82: 'Pb',
-    83: 'Bi', 84: 'Po', 85: 'At', 86: 'Rn', 87: 'Fr', 88: 'Ra', 89: 'Ac', 90: 'Th', 91: 'Pa',
-    92: 'U', 93: 'Np', 94: 'Pu', 95: 'Am', 96: 'Cm', 97: 'Bk', 98: 'Cf', 99: 'Es', 100: 'Fm',
-    101: 'Md', 102: 'No', 103: 'Lr', 104: 'Rf', 105: 'Db', 106: 'Sg', 107: 'Bh', 108: 'Hs',
-    109: 'Mt', 110: 'Ds', 111: 'Rg', 112: 'Cn', 113: 'Nh', 114: 'Fl', 115: 'Mc', 116: 'Lv',
-    117: 'Ts', 118: 'Og'
-}
-
-# Reverse dictionary: symbol to atomic number
-atomic_symbol_to_number = {v: k for k, v in atomic_number_to_symbol.items()}

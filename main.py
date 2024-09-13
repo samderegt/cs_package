@@ -1,7 +1,6 @@
 import numpy as np
 import time; import datetime
 import argparse
-import sys
 
 import data
 from cross_sec import CrossSection
@@ -30,42 +29,32 @@ if __name__ == '__main__':
     parser.add_argument('--trans_idx_max', '-i_max', default=1, type=int)
     parser.add_argument('--show_pbar', action='store_true')
     
-    # optionally, overwrite the P and T values of conf
+    # Optionally, overwrite the P and T values of conf
     parser.add_argument('--P', type=float, default=None)
     parser.add_argument('--T', type=float, default=None)
+    parser.add_argument('--tmp_output_file', type=str, default='cross{}.hdf5')
     args = parser.parse_args()
 
     # Import input file as 'conf'
     input_string = str(args.input_file).replace('.py', '').replace('/', '.')
     conf = __import__(input_string, fromlist=[''])
-    
-    if (args.P is not None) and (args.T is not None):
-        conf.P_grid = np.array([args.P])
-        conf.T_grid = np.array([args.T])
-        # update tmp file to avoid overwriting
-        conf.files['tmp_output'] = conf.files['tmp_output'].replace('.hdf5', f'_P{args.P:.0e}_T{args.T:.0f}.hdf5')
-    
-        print(f' Updated values of PT grid, saving to file: {conf.files["tmp_output"]}')
-        # check im tmp_output file exists, skip if it does
-        import pathlib
-        if pathlib.Path(conf.files['tmp_output']).exists():
-            print(' File already exists, skipping...')
-            sys.exit()
 
-    
     # Download from the ExoMol/HITEMP database
     if args.download:
         if conf.database.lower() == 'exomol':
             data.ExoMol.download_data(conf)
         elif conf.database.lower() in ['hitemp', 'hitran']:
             data.HITEMP.download_data(conf)
+        elif conf.database.lower() in ['vald', 'kurucz']:
+            data.VALD_Kurucz.download_data(conf)
 
         import sys; sys.exit()
-
+            
     # Load data
     D = data.load_data(conf)
     trans_file      = conf.files['transitions']
-    tmp_output_file = conf.files['tmp_output']
+    tmp_output_dir  = conf.files['tmp_output_dir']
+    tmp_output_file = f'{tmp_output_dir}/{args.tmp_output_file}'
 
     N_trans = 1
     if isinstance(trans_file, (list, tuple)):
@@ -86,18 +75,26 @@ if __name__ == '__main__':
             d_idx = -1
         trans_idx = np.arange(args.trans_idx_min, args.trans_idx_max, d_idx)
 
+        # Update tmp file to avoid overwriting
+        if args.P is not None:
+            conf.P_grid = np.array([args.P])
+            tmp_output_file = tmp_output_file.replace('.hdf5', f'_P{args.P}.hdf5')
+        if args.T is not None:
+            conf.T_grid = np.array([args.T])
+            tmp_output_file = tmp_output_file.replace('.hdf5', f'_T{args.T}.hdf5')
+                
         time_start = time.time()
         for i in trans_idx:
             time_start_i = time.time()
             # Read 1 .trans file at a time
             trans_file_i = trans_file[i]
             # If 'output' is an fstring
-            tmp_output_file_i = tmp_output_file.format(i)
+            tmp_output_file = tmp_output_file.format(i)
 
             # Compute + save cross-sections
             CS = CrossSection(conf, Q=D.Q, mass=D.mass)
             CS = D.get_cross_sections(CS, trans_file_i, show_pbar=show_pbar)
-            CS.save_cross_sections(tmp_output_file_i)
+            CS.save_cross_sections(tmp_output_file)
             
             time_finish_i = time.time()
             time_elapsed_i = time_finish_i - time_start_i
@@ -112,7 +109,7 @@ if __name__ == '__main__':
     if args.save:
         # (Possibly) combine cross-sections from different .trans files
         D.combine_cross_sections(
-            tmp_output_file, N_trans, 
+            tmp_output_dir, N_trans, 
             append_to_existing=args.append_to_existing
             )
         
@@ -122,13 +119,13 @@ if __name__ == '__main__':
             )
         F.plot_P(
             T=1000, P=10**np.array([-4,-2,0,2], dtype=np.float64), 
-            ylim=(1e-28,1e-16)
+            ylim=(1e-28,1e-16), save_file=f'{conf.cross_sec_outputs}/plots/P.pdf'
             )
         F.plot_T(
-            P=1, T=np.array([1500,2000,2500,3000, 4000]), 
-            ylim=(1e-28,1e-16)
+            P=1, T=np.array([500,1000,1500,2000,2500]), 
+            ylim=(1e-28,1e-16), save_file=f'{conf.cross_sec_outputs}/plots/T.pdf'
             )
-        
+
     if args.convert_to_pRT2:
         D.convert_to_pRT2_format(
             out_dir=conf.pRT['out_dir'], 
