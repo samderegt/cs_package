@@ -252,7 +252,7 @@ class LineList:
 You may need to change the \"molparam\" value in \"molparam_id.txt\".')
             print('#'*50)
 
-    def combine_cross_sections(self, tmp_dir, N_trans, append_to_existing=False):
+    def combine_cross_sections(self, tmp_dir):
 
         print(f'\nCombining temporary cross-sections to file \"{self.final_output_file}\"')
 
