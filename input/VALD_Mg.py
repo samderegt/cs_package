@@ -3,6 +3,7 @@ import numpy as np
 database = 'Kurucz'
 
 species = 'Mg'
+isotopologue_id = dict(Mg=12)
 input_dir = f'./input_data/VALD/{species}/'
 
 # Output-directory
@@ -19,7 +20,7 @@ files = dict(
     # !! Request .csv (units: cm^-1) with degeneracy g !!
     states = f'{input_dir}/NIST_levels_tab_delimited.tsv', 
     
-    tmp_output   = f'{cross_sec_outputs}/tmp/{species}'+'_cross{}.hdf5', 
+    tmp_output_dir   = f'{cross_sec_outputs}/tmp/{species}'+'_cross{}.hdf5', 
     final_output = f'{cross_sec_outputs}/{species}.hdf5', 
 )
 
