@@ -251,6 +251,109 @@ class LineList:
             print('Database is HITRAN/HITEMP, so line-strengths are scaled by solar isotope ratio.\n\
 You may need to change the \"molparam\" value in \"molparam_id.txt\".')
             print('#'*50)
+            
+    def convert_to_pRT3_format(self,
+                               out_dir, 
+                               pRT_wave_file,
+                               isotopologue_id={'C': 12, 'O': 16}, # --> "12C-O16"
+                               debug=False,
+                               **kwargs):
+        
+        print('\nConverting to pRT3 opacity format')
+
+        # Load output: wave [um], sigma [cm^2/molecule], P [bar], T [K]
+        wave_um, sigma, P_bar, T = self.load_final_output()
+        wave_cm = wave_um * 1e-4
+
+        # Load pRT wavelength-grid
+        pRT_wave = np.genfromtxt(pRT_wave_file) # [cm]
+        if kwargs.get('crop_to_28um', False): # Set maximum wavelength to 28um, common for pRT3
+            pRT_wave = pRT_wave[pRT_wave <= 28e-4]
+            
+
+        # Create directory if not exist
+        out_dir = out_dir.replace('pRT2', 'pRT3')
+        pathlib.Path(out_dir).mkdir(parents=True, exist_ok=True)
+
+
+        # (wave.size, P.size, T.size) -> (P.size, T.size, wave.size)
+        sigma = np.moveaxis(sigma, 0, -1)
+        
+        # Interpolate onto pRT's wavelength-grid
+        new_sigma = np.zeros((sigma.shape[0], sigma.shape[1], pRT_wave.size))
+        for i in range(sigma.shape[0]):
+            for j in range(sigma.shape[1]):
+                new_sigma[i,j] = np.interp(pRT_wave, wave_cm, sigma[i,j], left=0.0, right=0.0)
+                
+        # 2) Convert sigma to variable `xsecarr` 
+        wavenumbers = 1 / pRT_wave
+        wavenumbers = wavenumbers[::-1]
+        wave_um_pRT = 1e4 * (1 / wavenumbers) # [cm^-1] -> [um]
+        
+        # check valid wavelength range
+        wave_um_min = max(wave_um.min(), wave_um_pRT.min())
+        wave_um_max = min(wave_um.max(), wave_um_pRT.max())
+        
+        xsecarr = new_sigma[:,:,::-1] # (P, T, wavenumber)
+        del sigma
+        
+        if debug:
+            print(f'[convert_to_pRT3_format] wave_um min: {wave_um.min():.2e} um wave_um max: {wave_um.max():.2e} um')
+            print(f'[convert_to_pRT3_format] xsecarr shape: {xsecarr.shape}')
+        
+        
+        # Save in pRT3 format following:
+        # https://gitlab.com/mauricemolli/petitRADTRANS/-/blob/master/petitRADTRANS/__file_conversion.py
+
+        # examples: 
+        # 1) isotopologue_id={'K':39}           --> '39K'
+        # 2) isotopologue_id={'C': 12, 'O': 16} --> '12C-16O'
+        # 3) isotopologue_id={'H2':1, 'O':18}   --> '1H2-18O'
+        # 4) isotopologue_id={'C':12, 'H4':1}   --> '12C-1H4'
+        species = "".join(list(isotopologue_id.keys()))
+        species_isotopologue_name = "-".join([f"{v}{k}" for k,v in isotopologue_id.items()])
+        mass = self.atoms_info.loc[species,'mass']
+        if debug:
+            print(f"[convert_to_pRT3_format] Atomic mass of {species_isotopologue_name}: {mass}")
+        
+        source = getattr(self, 'database', 'UNKNOWN')
+        if source == 'UNKNOWN':
+            print('WARNING: No database source found, set using "database" attribute. Defaulting to "UNKNOWN"')
+            
+        resolving_power = kwargs.get('resolving_power', 1e6)
+        file_pRT3 = get_opacity_filename(resolving_power=resolving_power,
+                                            wavelength_boundaries=[wave_um_min, wave_um_max],
+                                            species_isotopologue_name=species_isotopologue_name,
+                                            source=source,
+        )
+
+        # output_dir = pathlib.Path("/net/lem/data2/pRT3/input_data/opacities/lines/line_by_line/") / species / species_isotopologue_name
+        # assert output_dir.exists(), f"Output directory {output_dir} does not exist"
+        out_dir_species = pathlib.Path(out_dir) / species / species_isotopologue_name
+        out_dir_species.mkdir(parents=True, exist_ok=True)
+        
+        hdf5_opacity_file = out_dir_species / f'{file_pRT3}.xsec.petitRADTRANS.h5'
+        if debug:
+            print(f'[convert_to_pRT3_format] Saving to file: {hdf5_opacity_file}...')
+
+        print(hdf5_opacity_file)
+        doi = kwargs.get('doi', 'None')
+        contributor = kwargs.get('contributor', 'LEM') # default to LEM (Leiden Exoplanet Machine)
+        description = kwargs.get('description', 'Converted from `cs_package` format to `pRT3` format')
+
+        write_line_by_line(hdf5_opacity_file, 
+                        doi,
+                        wavenumbers, 
+                        xsecarr, 
+                        mass,
+                        species, 
+                        np.unique(P_bar),
+                        np.unique(T), 
+                        wavelengths=None, 
+                        contributor=contributor,
+                        description=description)
+        
+        
 
     def combine_cross_sections(self, tmp_dir):
 
@@ -330,6 +433,8 @@ You may need to change the \"molparam\" value in \"molparam_id.txt\".')
 
 class ExoMol(LineList):
 
+    database = 'exomol'
+    
     @classmethod
     def download_data(cls, conf):
 
@@ -594,7 +699,8 @@ class ExoMol(LineList):
                 i += 1
 
 class HITEMP(LineList):
-
+    database = 'hitemp'
+    
     @classmethod
     def download_data(cls, conf):
         
@@ -928,3 +1034,139 @@ lande_out=on&biblio=on&temp='
             )
             
         return CS
+    
+    
+## Helper functions (move somewhere else?) ##
+
+# adapted from https://gitlab.com/mauricemolli/petitRADTRANS/-/blob/master/petitRADTRANS/__file_conversion.py
+def write_line_by_line(file, doi, wavenumbers, opacities, mol_mass, species,
+                       opacities_pressures, opacities_temperatures, wavelengths=None,
+                       contributor=None, description=None,
+                       pRT_version="3.0.7"):
+    import datetime
+    
+    if wavelengths is None:
+        wavelengths = np.array([1 / wavenumbers[0], 1 / wavenumbers[-1]])
+
+    with h5py.File(file, "w") as fh5:
+        dataset = fh5.create_dataset(
+            name='DOI',
+            shape=(1,),
+            data=doi
+        )
+        dataset.attrs['long_name'] = 'Data object identifier linked to the data'
+        dataset.attrs['contributor'] = str(contributor)
+        dataset.attrs['additional_description'] = str(description)
+
+        dataset = fh5.create_dataset(
+            name='Date_ID',
+            shape=(1,),
+            data=f'petitRADTRANS-v{pRT_version}_{datetime.datetime.now(datetime.timezone.utc).isoformat()}'
+        )
+        dataset.attrs['long_name'] = 'ISO 8601 UTC time (https://docs.python.org/3/library/datetime.html) ' \
+                                     'at which the table has been created, ' \
+                                     'along with the version of petitRADTRANS'
+
+        dataset = fh5.create_dataset(
+            name='bin_edges',
+            data=wavenumbers
+        )
+        dataset.attrs['long_name'] = 'Wavenumber grid'
+        dataset.attrs['units'] = 'cm^-1'
+
+        dataset = fh5.create_dataset(
+            name='xsecarr',
+            data=opacities
+        )
+        dataset.attrs['long_name'] = 'Table of the cross-sections with axes (pressure, temperature, wavenumber)'
+        dataset.attrs['units'] = 'cm^2/molecule'
+
+        dataset = fh5.create_dataset(
+            name='mol_mass',
+            shape=(1,),
+            data=float(mol_mass)
+        )
+        dataset.attrs['long_name'] = 'Mass of the species'
+        dataset.attrs['units'] = 'AMU'
+
+        dataset = fh5.create_dataset(
+            name='mol_name',
+            shape=(1,),
+            data=species.split('_', 1)[0]
+        )
+        dataset.attrs['long_name'] = 'Name of the species described'
+
+        dataset = fh5.create_dataset(
+            name='p',
+            data=opacities_pressures
+        )
+        dataset.attrs['long_name'] = 'Pressure grid'
+        dataset.attrs['units'] = 'bar'
+
+        dataset = fh5.create_dataset(
+            name='t',
+            data=opacities_temperatures
+        )
+        dataset.attrs['long_name'] = 'Temperature grid'
+        dataset.attrs['units'] = 'K'
+
+        dataset = fh5.create_dataset(
+            name='temperature_grid_type',
+            shape=(1,),
+            data='regular'
+        )
+        dataset.attrs['long_name'] = 'Whether the temperature grid is "regular" ' \
+                                     '(same temperatures for all pressures) or "pressure-dependent"'
+
+        dataset = fh5.create_dataset(
+            name='wlrange',
+            data=np.array([wavelengths.min(), wavelengths.max()]) * 1e4  # cm to um
+        )
+        dataset.attrs['long_name'] = 'Wavelength range covered'
+        dataset.attrs['units'] = 'µm'
+
+        dataset = fh5.create_dataset(
+            name='wnrange',
+            data=np.array([wavenumbers.min(), wavenumbers.max()])
+        )
+        dataset.attrs['long_name'] = 'Wavenumber range covered'
+        dataset.attrs['units'] = 'cm^-1'
+        
+    print(f"Saved to {file}")
+    return None
+
+
+def get_opacity_filename(resolving_power, wavelength_boundaries, species_isotopologue_name,
+                         source):
+    if resolving_power < 1e6:
+        resolving_power = f"{resolving_power:.0f}"
+    else:
+        decimals = np.mod(resolving_power / 10 ** np.floor(np.log10(resolving_power)), 1)
+
+        if decimals >= 1e-3:
+            resolving_power = f"{resolving_power:.3e}"
+        else:
+            resolving_power = f"{resolving_power:.0e}"
+
+    spectral_info = (f"R{resolving_power}_"
+                     f"{wavelength_boundaries[0]:.1f}-{wavelength_boundaries[1]:.1f}mu")
+
+    return join_species_all_info(
+        name=species_isotopologue_name,
+        source=source,
+        spectral_info=spectral_info
+    )
+    
+def join_species_all_info(name, natural_abundance='', charge='', cloud_info='', source='', spectral_info=''):
+    if natural_abundance != '':
+        name += '-' + natural_abundance
+
+    name += charge + cloud_info
+
+    if source != '':
+        name += '__' + source
+
+    if spectral_info != '':
+        name += '.' + spectral_info
+
+    return name
