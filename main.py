@@ -31,7 +31,7 @@ if __name__ == '__main__':
     # Optionally, overwrite the P and T values of conf
     parser.add_argument('--P', type=float, default=None)
     parser.add_argument('--T', type=float, default=None)
-    parser.add_argument('--tmp_output_file', type=str, default='cross{}.hdf5')
+    parser.add_argument('--tmp_output_file', '-out', type=str, default='cross{}.hdf5')
     args = parser.parse_args()
 
     # Import input file as 'conf'

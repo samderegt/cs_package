@@ -732,7 +732,7 @@ lande_out=on&biblio=on&temp='
             url = f'http://kurucz.harvard.edu/atoms/{atom_id}/gf{atom_id}.{extension}'
             try:
                 trans_file = wget_if_not_exist(url, out_dir=input_dir, out_name=trans_file)
-                continue
+                break
             except:
                 pass
         print()
