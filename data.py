@@ -15,8 +15,12 @@ import itertools
 import pathlib
 import wget
 import json
+import time
+import datetime
 
 from tqdm import tqdm
+
+from cross_sec import CrossSection
 
 def load_data(conf):
     if conf.database.lower() in ['hitemp', 'hitran']:
@@ -70,17 +74,34 @@ class LineList:
         # Atomic mass [kg]
         self.mass = conf.mass * 1.0e-3/sc.N_A
 
-        self.final_output_file = conf.files['final_output']
+        self.input_dir  = getattr(conf, 'input_dir', None)
+        self.output_dir = getattr(conf, 'output_dir', None)
+
+        assert pathlib.Path(self.input_dir).is_dir(), 'input_dir does not exist'
+        assert self.output_dir is not None, 'output_dir not given in input-file'
+
+        self.tmp_output_dir = f'{self.output_dir}/tmp/'
+        self.final_output_file = f'{self.output_dir}/{conf.species}.hdf5'
+
+        #self.final_output_file = conf.files['final_output']
         self.N_lines_max = getattr(conf, 'N_lines_max', 10_000_000)           
 
         # Pressure-broadening parameters
+        broadening_info = getattr(conf, 'broadening', None)
+        if (self.database in ['vald','kurucz']) and (broadening_info is None):
+            broadening_info = dict(
+                H2={'VMR':0.85, 'mass':2.01568, 'alpha':0.806e-24}, 
+                He={'VMR':0.15, 'mass':4.002602, 'alpha':0.204956e-24} 
+                )
+        assert broadening_info is not None, 'no broadening information given in input-file'
+        
+        # Read into the right format
+        self._load_pressure_broad(broadening_info)
+
+    def _load_pressure_broad(self, broadening_info):
+
         self.broad = {}
-        if hasattr(conf, 'broadening'):
-            self._load_pressure_broad(conf.broadening)
-
-    def _load_pressure_broad(self, broadening):
-
-        for species_i, input_i in broadening.items():
+        for species_i, input_i in broadening_info.items():
             
             # Volume-mixing ratio
             self.broad[species_i] = input_i.copy()
@@ -246,7 +267,7 @@ class LineList:
             file_to_remove = pathlib.Path(f'{out_dir}/{file_to_remove}')
             file_to_remove.unlink()
 
-        if isinstance(self, HITEMP):
+        if self.database == 'hitemp':
             print('\n'+'#'*50)
             print('Database is HITRAN/HITEMP, so line-strengths are scaled by solar isotope ratio.\n\
 You may need to change the \"molparam\" value in \"molparam_id.txt\".')
@@ -352,16 +373,19 @@ You may need to change the \"molparam\" value in \"molparam_id.txt\".')
                         wavelengths=None, 
                         contributor=contributor,
                         description=description)
-        
-        
 
-    def combine_cross_sections(self, tmp_dir):
+    def combine_cross_sections(self, conf):
+
+        sum_trans_files = False
+        trans_files = conf.files['transitions']
+        if isinstance(trans_files, list):
+            sum_trans_files = (len(trans_files) > 1)
 
         print(f'\nCombining temporary cross-sections to file \"{self.final_output_file}\"')
 
         # Check compatibility of files before combining
-        print(f'Looking in directory \"{tmp_dir}\"')
-        tmp_files = sorted(pathlib.Path(tmp_dir).glob('*.hdf5'))
+        print(f'Looking in directory \"{self.tmp_output_dir}\"')
+        tmp_files = sorted(pathlib.Path(self.tmp_output_dir).glob('*.hdf5'))
 
         all_PT = []
         for i, tmp_file_i in enumerate(tmp_files):
@@ -374,8 +398,13 @@ You may need to change the \"molparam\" value in \"molparam_id.txt\".')
                 all_PT.append([P_ij,T_ij])
             
             if i == 0:
-                wave = wave_i.copy()            
+                wave = wave_i.copy()
+                P, T = P_i.copy(), T_i.copy()
             assert (wave == wave_i).all(), 'Wavelengths do not match'
+            
+            if sum_trans_files:
+                assert (P == P_i).all(), 'Separate trans-files have mismatching P-grid'
+                assert (T == T_i).all(), 'Separate trans-files have mismatching T-grid'
 
         # Check if PT grid is rectangular
         all_PT = np.array(all_PT)
@@ -405,8 +434,12 @@ You may need to change the \"molparam\" value in \"molparam_id.txt\".')
 
                 for k, T_ik in enumerate(T_i):
                     idx_T = np.argwhere((unique_T == T_ik)).flatten()[0]
-                    sigma_tot[:,idx_P,idx_T] += sigma_i[:,j,k]
-
+                    
+                    if sum_trans_files:
+                        sigma_tot[:,idx_P,idx_T] += sigma_i[:,j,k]
+                    else:
+                        # Avoid summing when only one transition file was used
+                        sigma_tot[:,idx_P,idx_T] = sigma_i[:,j,k]
 
         # Create directory if not exist
         pathlib.Path(self.final_output_file).parent.mkdir(parents=True, exist_ok=True)
@@ -447,7 +480,7 @@ class ExoMol(LineList):
 
         # Download the definition file
         def_file = wget_if_not_exist(url_def_json, input_dir)
-        url_base = url_def_json.replace('.json', '')
+        url_base = url_def_json.replace('.def.json', '')
         print()
 
         # Read definition file
@@ -510,13 +543,8 @@ class ExoMol(LineList):
 
     def __init__(self, conf):
 
-        assert('H2_broadening' not in conf.files)
-        assert('He_broadening' not in conf.files)
-        assert(hasattr(conf, 'broadening'))
-
         # Instantiate the parent class
         super().__init__(conf)
-        #print(self.broad)
 
         # Partition function
         self.Q = np.loadtxt(conf.files['partition_function'])
@@ -611,7 +639,38 @@ class ExoMol(LineList):
                 
         return broad_per_trans
     
-    def get_cross_sections(self, CS, file, show_pbar=True, debug=False):
+    def get_cross_sections(self, conf, tmp_output_file='cross{}.hdf5', i_min=0, i_max=1, show_pbar=True):
+
+        trans_files = conf.files['transitions']
+        if not isinstance(trans_files, list):
+            trans_files = [trans_files]
+
+        if len(trans_files) > 1:
+            show_pbar = False
+
+        # Can flip direction of iteration
+        d_idx = 1*np.sign(i_max-i_min)
+        trans_indices = np.arange(i_min, i_max, d_idx)
+
+        for idx in trans_indices:
+            # Change the name of the temporary output file
+            tmp_output_file_idx = tmp_output_file.format(idx)
+            tmp_output_file_idx = f'{self.tmp_output_dir}/{tmp_output_file_idx}'
+
+            time_start = time.time()
+
+            # Compute + save cross-sections
+            CS = CrossSection(conf, Q=self.Q, mass=self.mass)
+            CS = self._get_cross_sections_per_trans_file(
+                CS, trans_files[idx], show_pbar=show_pbar
+                )
+            CS.save_cross_sections(tmp_output_file_idx)
+
+            time_finish = time.time()
+            time_elapsed = time_finish - time_start
+            print('\nTime elapsed: {}'.format(str(datetime.timedelta(seconds=time_elapsed))))
+
+    def _get_cross_sections_per_trans_file(self, CS, file, show_pbar=True):
 
         print(f'\nComputing cross-sections from \"{file}\"')
 
@@ -699,6 +758,7 @@ class ExoMol(LineList):
                 i += 1
 
 class HITEMP(LineList):
+
     database = 'hitemp'
     
     @classmethod
@@ -722,19 +782,14 @@ class HITEMP(LineList):
 
     def __init__(self, conf):
 
-        assert('H2_broadening' not in conf.files)
-        assert('He_broadening' not in conf.files)
-        assert(hasattr(conf, 'broadening'))
-
         # Instantiate the parent class
         super().__init__(conf)
-        
+
         # Remove any quantum-number dependency as we cannot 
         # match ExoMol state IDs with HITRAN/HITEMP
         for species_i, broad_i in self.broad.items():
             self.broad[species_i]['gamma'] = np.nanmean([broad_i.get('gamma', 0.0)])
             self.broad[species_i]['n']     = np.nanmean([broad_i.get('n', 0.0)])
-        #print(self.broad)
 
         # Partition function
         self.Q = np.loadtxt(conf.files['partition_function'])
@@ -742,7 +797,11 @@ class HITEMP(LineList):
         # Isotope index (HITEMP/HITRAN-specific)
         self.isotope_idx = getattr(conf, 'isotope_idx', 1)
 
-    def get_cross_sections(self, CS, file, show_pbar=True):
+    def get_cross_sections(self, conf, tmp_output_file='cross{}.hdf5', show_pbar=True, **kwargs):
+
+        file = conf.files['transitions']
+        CS = CrossSection(conf, Q=self.Q, mass=self.mass)
+        tmp_output_file = f'{self.tmp_output_dir}/' + tmp_output_file.format('')
 
         print(f'\nComputing cross-sections from \"{file}\"')
 
@@ -781,7 +840,8 @@ class HITEMP(LineList):
                 delta_P=np.zeros_like(nu_0) # !! for P-dependent shifts !!
                 )
         
-        return CS
+        # Save in a temporary output file
+        CS.save_cross_sections(tmp_output_file)
 
 class VALD_Kurucz(LineList):
 
@@ -853,11 +913,11 @@ lande_out=on&biblio=on&temp='
             conf.mass = self.atoms_info.loc[species,'mass']
             print(f'Using mass from \"atoms_info.csv\": {conf.mass}')
 
-        # Instantiate the parent class
-        super().__init__(conf)
-
         # Different file-formats ['vald', 'kurucz']
         self.database = conf.database.lower()
+
+        # Instantiate the parent class
+        super().__init__(conf)
 
         # Compute partition function from state-info
         self._get_partition_from_NIST_states(conf.files['states'])
@@ -951,7 +1011,11 @@ lande_out=on&biblio=on&temp='
 
         return nu_0, E_low, gf, gamma_vdW, log_gamma_N
 
-    def get_cross_sections(self, CS, file, show_pbar=True):
+    def get_cross_sections(self, conf, tmp_output_file='cross{}.hdf5', show_pbar=True, **kwargs):
+
+        file = conf.files['transitions']
+        CS = CrossSection(conf, Q=self.Q, mass=self.mass)
+        tmp_output_file = f'{self.tmp_output_dir}/' + tmp_output_file.format('')
 
         print(f'\nComputing cross-sections from \"{file}\"')
 
@@ -1033,8 +1097,9 @@ lande_out=on&biblio=on&temp='
             log_gamma_N=log_gamma_N
             )
             
-        return CS
-    
+        # Save in a temporary output file
+        CS.save_cross_sections(tmp_output_file)
+
     
 ## Helper functions (move somewhere else?) ##
 

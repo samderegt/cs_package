@@ -24,7 +24,7 @@ class CrossSection:
 
         # Create wavenumber grid
         self._set_nu_grid(conf)
-        self.adaptive_nu_grid = getattr(conf, 'adaptive_nu_grid', True)
+        self.adaptive_nu_grid = getattr(conf, 'adaptive_nu_grid', False)
         
         # (P,T)-grid to compute cross-sections on
         self.P_grid = np.asarray(conf.P_grid) * 1e5 # [bar] -> [Pa]
@@ -45,8 +45,8 @@ class CrossSection:
         self.cutoff_max = getattr(conf, 'cutoff_max', np.inf)
 
         # Line-strength cutoffs
-        self.local_cutoff  = getattr(conf, 'local_cutoff', 0.35)
-        self.global_cutoff = getattr(conf, 'global_cutoff', 1e-45)
+        self.local_cutoff  = getattr(conf, 'local_cutoff', None)
+        self.global_cutoff = getattr(conf, 'global_cutoff', None)
 
         # Print some info
         print()
@@ -178,7 +178,7 @@ class CrossSection:
             n_i     = broad_i.get('n', 0.0)
 
             gamma_tot += gamma_i * (100*sc.c) * VMR_i * \
-                (self.T_0/T)**n_i * (P*1e-5) # [cm^-1] -> [s^-1]
+                (self.T_0/T)**n_i * (P/101325) # [cm^-1] -> [s^-1]
 
         return gamma_tot
     
@@ -240,61 +240,6 @@ class CrossSection:
         )
         return nu_grid_coarse
     
-    def _fast_line_profiles_voigt(
-            self, nu_0, S, gamma_L, sigma_G, 
-            nu_grid, nu_line, idx_to_insert, 
-            cutoff_dist_n, chunk_size=200, 
-            ):
-
-        sigma = np.zeros_like(nu_grid)
-
-        # Only consider 'chunk_size' lines at a time
-        N_chunks = int(np.ceil(len(S)/chunk_size))
-
-        for ch in range(N_chunks):
-            
-            # Upper and lower indices of lines in current chunk
-            idx_ch_l = int(ch*chunk_size)
-            idx_ch_h = idx_ch_l + chunk_size
-            idx_ch_h = np.minimum(idx_ch_h, len(S)) # At last chunk
-
-            # Indices of nu_grid_coarse to insert current lines in
-            idx_to_insert_ch = idx_to_insert[idx_ch_l:idx_ch_h]
-
-            # Lines in current chunk | (N_lines,1)
-            nu_0_ch    = nu_0[idx_ch_l:idx_ch_h,None]
-            sigma_G_ch = sigma_G[idx_ch_l:idx_ch_h,None]
-            gamma_L_ch = gamma_L[idx_ch_l:idx_ch_h,None]
-            S_ch = S[idx_ch_l:idx_ch_h,None]
-
-            # Correct for coarse grid | (N_lines,1)
-            nu_grid_ch = nu_grid[idx_to_insert_ch,None]
-
-            # Eq. 10 (Gandhi et al. 2020) | (N_lines,N_wave[cut])
-            x = nu_line[None,:]+nu_grid_ch - nu_0_ch
-
-            # (Scaled) Faddeeva function for Voigt profiles | (N_lines,N_wave[cut])
-            sigma_ch = S_ch * voigt_profile(x, sigma_G_ch, gamma_L_ch)
-
-            #sigma_ch = []
-            #for x_i, sigma_G_ch_i, gamma_L_ch_i, S_ch_i in zip(x, sigma_G_ch[:,0], gamma_L_ch[:,0], S_ch[:,0]):
-            #    sigma_ch.append(S_ch_i * voigt_profile(x_i, sigma_G_ch_i, gamma_L_ch_i)) 
-
-            # Upper and lower index of these lines in sigma_coarse
-            s_l = np.maximum(0, idx_to_insert_ch-cutoff_dist_n+1)
-            s_h = np.minimum(len(nu_grid), idx_to_insert_ch+cutoff_dist_n)
-
-            # Upper and lower index of these lines in sigma_ch
-            f_l = np.maximum(0, cutoff_dist_n-1-idx_to_insert_ch)
-            f_h = 2*cutoff_dist_n - 1 - np.maximum(0,idx_to_insert_ch+cutoff_dist_n-len(nu_grid))
-
-            # Loop over each line profile
-            for i, sigma_i in enumerate(sigma_ch):
-                # Add line to total cross-section
-                sigma[s_l[i]:s_h[i]] += sigma_i[f_l[i]:f_h[i]]
-
-        return sigma
-    
     def _fast_line_profiles(
             self, nu_0, S, gamma_L, gamma_G, 
             nu_grid, nu_line, idx_to_insert, 
@@ -331,10 +276,6 @@ class CrossSection:
 
             # (Scaled) Faddeeva function for Voigt profiles | (N_lines,N_wave[cut])
             sigma_ch = S_ch * np.real(wofz(u+a_ch*1j)) / (gamma_G_ch*np.sqrt(np.pi))
-
-            #sigma_ch = []
-            #for u_i, a_ch_i, gamma_G_ch_i, S_ch_i in zip(u, a_ch[:,0], gamma_G_ch[:,0], S_ch[:,0]):
-            #    sigma_ch.append(S_ch_i * np.real(wofz(u_i+a_ch_i*1j)) / (gamma_G_ch_i*np.sqrt(np.pi))) 
 
             # Upper and lower index of these lines in sigma_coarse
             s_l = np.maximum(0, idx_to_insert_ch-cutoff_dist_n+1)
@@ -400,7 +341,7 @@ class CrossSection:
         
         if delta_P is not None:
             # P-dependent shifts (HITRAN/HITEMP)
-            nu_0 = nu_0 + delta_P*(100*sc.c)*(P*1e-5)
+            nu_0 = nu_0 + delta_P*(100*sc.c)*(P/101325)
 
             # Sort by the new wavenumbers
             idx_sort = np.argsort(nu_0)
@@ -415,28 +356,6 @@ class CrossSection:
             self._gamma_vdW(P, T, broad_per_trans, gamma_vdW)
         gamma_G = self._gamma_G(T, nu_0)
 
-        '''
-        for i, nu_0_i in enumerate([7983.67489, 8041.38112]):
-            mask_K_doublet = np.isclose(nu_0, nu_0_i*(100*sc.c))
-            if not mask_K_doublet.any():
-                continue
-
-            if i == 0:
-                # 4p ^{2}P_{3/2} - 5s
-                gamma_w, d = self.Allard_ea_2023_shift_width(
-                    P, T, A_w={'H2':0.352609, 'He':0.20819}, b_w={'H2':0.385961, 'He':0.452833}, 
-                    A_d={'H2':0.00158988, 'He':0.00194382}, b_d={'H2':0.949254, 'He':0.89691}, 
-                    )
-            if i == 1:
-                # 4p ^{2}P_{1/2} - 5s
-                gamma_w, d = self.Allard_ea_2023_shift_width(
-                    P, T, A_w={'H2':0.245926, 'He':0.121448}, b_w={'H2':0.447971, 'He':0.531718}, 
-                    A_d={'H2':0.00211668, 'He':0.000462539}, b_d={'H2':0.933563, 'He':1.07284}, 
-                    )
-            gamma_L[mask_K_doublet] = gamma_w + \
-                self._gamma_N(nu_0[mask_K_doublet], log_gamma_N[mask_K_doublet])
-            nu_0[mask_K_doublet] += d
-        '''
         # Select only lines within nu_grid
         nu_0, S, gamma_L, gamma_G = self._apply_mask(
             [nu_0,S,gamma_L,gamma_G], nu_0<self.nu_max
@@ -514,17 +433,6 @@ class CrossSection:
             cutoff_dist_n=cutoff_dist_n, 
             chunk_size=200, 
             )
-        '''
-        sigma_G = gamma_G/np.sqrt(2)
-        sigma_coarse = self._fast_line_profiles_voigt(
-            nu_0, S, gamma_L, sigma_G, 
-            nu_grid=nu_grid_coarse, 
-            nu_line=nu_line, 
-            idx_to_insert=idx_to_insert, 
-            cutoff_dist_n=cutoff_dist_n, 
-            chunk_size=200, 
-            )
-        '''
 
         # Add to total cross-sections
         if len(nu_grid_coarse) == len(self.nu_grid):

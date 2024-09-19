@@ -1,14 +1,14 @@
 import numpy as np
 
 database = 'ExoMol'
-species  = 'AlH'
-mass = 27.98948 # (in .json file)
+species  = 'H2O'
+mass = 18.010565 # (in .json file)
 
 # Instructions to download from ExoMol database
-url_def_json = 'https://www.exomol.com/db/AlH/27Al-1H/AloHa/27Al-1H__AloHa.def.json'
+url_def_json = 'https://www.exomol.com/db/H2O/1H2-16O/POKAZATEL/1H2-16O__POKAZATEL.def.json'
 url_broad = [
-    'https://www.exomol.com/db/AlH/27Al-1H/27Al-1H__H2.broad', 
-    'https://www.exomol.com/db/AlH/27Al-1H/27Al-1H__He.broad'
+    'https://www.exomol.com/db/H2O/1H2-16O/1H2-16O__H2.broad', 
+    'https://www.exomol.com/db/H2O/1H2-16O/1H2-16O__He.broad'
 ]
 
 # Input/output-directories
@@ -16,19 +16,22 @@ input_dir  = f'./input_data/{database}/{species}/'
 output_dir = f'./cross_sec_outputs/{species}/'
 
 files = dict(
-    transitions = f'{input_dir}/27Al-1H__AloHa.trans.bz2', 
-    states      = f'{input_dir}/27Al-1H__AloHa.states.bz2', 
+    transitions = [
+        '{}/1H2-16O__POKAZATEL__{:05d}-{:05d}.trans.bz2'.format(input_dir, nu_min, nu_min+100) \
+        for nu_min in np.arange(0, 41200, 100)
+    ], 
+    states = f'{input_dir}/1H2-16O__POKAZATEL.states.bz2', 
 
-    partition_function = f'{input_dir}/27Al-1H__AloHa.pf', 
+    partition_function = f'{input_dir}/1H2-16O__POKAZATEL.pf', 
 )
 
 # Pressure-broadening information
 broadening = dict(
     H2 = dict(
-        VMR=0.85, file=f'{input_dir}/27Al-1H__H2.broad', # read from file
+        VMR=0.85, file=f'{input_dir}/1H2-16O__H2.broad', # read from file
         ), 
     He = dict(
-        VMR=0.15, file=f'{input_dir}/27Al-1H__He.broad', # read from file
+        VMR=0.15, file=f'{input_dir}/1H2-16O__He.broad', # read from file
         ), 
 )
 
