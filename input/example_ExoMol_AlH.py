@@ -3,6 +3,7 @@ import numpy as np
 database = 'ExoMol'
 species  = 'AlH'
 mass = 27.98948 # (in .json file)
+isotopologue_id = {'Al':27, 'H':1}
 
 # Instructions to download from ExoMol database
 url_def_json = 'https://www.exomol.com/db/AlH/27Al-1H/AloHa/27Al-1H__AloHa.def.json'

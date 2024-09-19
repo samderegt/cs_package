@@ -2,6 +2,7 @@ import numpy as np
 
 database = 'Kurucz'
 species  = 'Fe'
+isotopologue_id = {'Fe':56}
 
 # Input/output-directories
 input_dir  = f'./input_data/{database}/{species}/'

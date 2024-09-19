@@ -4,6 +4,7 @@ database = 'HITEMP'
 species  = '12CO'
 mass = 28.01 
 isotope_idx = 1 # !! HITEMP specific !! .par-file includes all isotopologues
+isotopologue_id = {'C':12, 'O':16}
 
 # Instructions to download from HITRAN/HITEMP database
 urls = [

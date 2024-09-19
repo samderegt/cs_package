@@ -4,6 +4,7 @@ import argparse
 
 import data
 from figures import Figures
+from pRT_conversion import convert_to_pRT2_format, convert_to_pRT3_format
 
 if __name__ == '__main__':
 
@@ -95,26 +96,7 @@ if __name__ == '__main__':
             )
 
     if args.convert_to_pRT2:
-        D.convert_to_pRT2_format(
-            out_dir=conf.pRT['out_dir'], 
-            pRT_wave_file=conf.pRT['wave'], 
-            make_short_file=conf.pRT['make_short_file']
-        )
+        convert_to_pRT2_format(conf, Data=D)
         
     if args.convert_to_pRT3:
-        
-        isotopologue_id = getattr(conf, 'isotopologue_id', None) # dict(Mg=12)
-        assert isotopologue_id is not None, 'isotopologue_id must be defined in input file'
-        
-        kwargs = {
-                    'resolving_power': 1e6, # R = lambda / dlambda, default: 1e6
-                    'contributor': 'Dario Gonzalez Picos',
-                    'doi': 'None', # change if you have a publication with this data
-        }
-                      
-        D.convert_to_pRT3_format(
-            out_dir=conf.pRT['out_dir'], 
-            pRT_wave_file=conf.pRT['wave'], 
-            isotopologue_id=isotopologue_id,
-            **kwargs
-        )
+        convert_to_pRT3_format(conf, Data=D)
