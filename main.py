@@ -79,7 +79,7 @@ if __name__ == '__main__':
         print('\nTime elapsed (total): {}'.format(str(datetime.timedelta(seconds=time_elapsed))))
 
     if args.save:
-        # (Possibly) combine cross-sections from different .trans files
+        # Combine cross-sections from different .trans files or PT-grids
         D.combine_cross_sections(conf)
         
     if args.plot:
@@ -95,8 +95,8 @@ if __name__ == '__main__':
             ylim=(1e-28,1e-16), save_file=f'{conf.output_dir}/plots/T.pdf'
             )
 
+    # Convert to the petitRADTRANS format
     if args.convert_to_pRT2:
         convert_to_pRT2_format(conf, Data=D)
-        
     if args.convert_to_pRT3:
         convert_to_pRT3_format(conf, Data=D)

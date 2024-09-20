@@ -4,36 +4,39 @@ A Python package for computing opacity cross-sections, using line lists from VAL
 Give the input python-file as the first positional argument when calling `main.py` (see examples of the input files in `input/`).
 
 ## Computing cross-sections
-Give the temporary output-file as an argument when calculating the cross-sections. This file will be placed in the `tmp_output_dir`-directory specified in the input-file. 
+A temporary output-filename can be given as an argument (default: `cross.hdf5`) when calculating the cross-sections. This file will be placed in `<output_dir>/tmp/`, with `<output_dir>` specified in the input-file. 
 ```
-python main.py input/XXX -cs --tmp_output_file cross.hdf5
+python main.py <input_file> -cs -out <tmp_output_file>
 ```
 The pressure-temperature points can also be defined on the command line (i.e. different from the input-file), which helps to parallelise computations. 
 ```
-python main.py input/XXX -cs --P 1.0 --tmp_output_file cross.hdf5
+python main.py input/XXX -cs --P 1.0
 ```
 will save a file (`cross_P1.0.hdf5`) at a pressure of 1 bar for the temperatures specified in the input-file. The `--T` argument can be used similarly for a temperature point.
 
-### (Computing multiple ExoMol `.trans-files`)
+### Computing multiple ExoMol `.trans`-files
 If the line list is separated into multiple `.trans`-files, run between `i_min=5` and `i_max=10` with:
 ```
-python main.py input/XXX -cs -i_min 5 -i_max 10 --tmp_output_file 'cross{}.hdf5'
+python main.py input/XXX -cs -i_min 5 -i_max 10 -out 'cross{}.hdf5'
 ```
-This will save the temporary outputs in 'cross5.hdf5', 'cross6.hdf5', etc. 
+This will save the temporary outputs in `cross5.hdf5`, `cross6.hdf5`, etc. 
 
 
 ## Combining cross-sections
-To combine output-files in the `tmp_output_dir`-directory into a `final_output_file`:
+To combine output-files in `<output_dir>/tmp/` into a final output-file (`<output_dir>/<species>.hdf5`):
 ```
 python main.py input/XXX -s
 ```
-This will try to combine different PT-grids, but will only work if a rectangular grid can be made. You could expand the PT-grid of an existing `final_output_file` by placing it in the `tmp_output_dir`, alongside more PT-points, and running the command above. 
+This will try to combine different PT-grids, but will only work if a rectangular grid can be made. You could expand the PT-grid of an existing save-file by placing it in the `<output_dir>/tmp/`, alongside more PT-points, and running the command above. 
 
-## Converting to pRT2-format
+## Converting to petitRADTRANS 2/3-format
 ```
 python main.py input/XXX --convert_to_pRT2
 ```
 will create the `short_stream/` opacity-directory for petitRADTRANS version 2. 
+```
+python main.py input/XXX --convert_to_pRT3
+```
 
 ## Plotting
 ```
