@@ -1,5 +1,5 @@
 
-class Gharib_Nezhad_ea_2021_broadening:
+class Gharib_Nezhad_ea_2021:
 
     def __init__(self, species='AlH'):
         
