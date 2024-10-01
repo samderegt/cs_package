@@ -10,14 +10,14 @@ python main.py <input_file> -cs -out <tmp_output_file>
 ```
 The pressure-temperature points can also be defined on the command line (i.e. different from the input-file), which helps to parallelise computations. 
 ```
-python main.py input/XXX -cs --P 1.0
+python main.py <input_file> -cs --P 1.0
 ```
 will save a file (`cross_P1.0.hdf5`) at a pressure of 1 bar for the temperatures specified in the input-file. The `--T` argument can be used similarly for a temperature point.
 
 ### Computing multiple ExoMol `.trans`-files
 If the line list is separated into multiple `.trans`-files, run between `i_min=5` and `i_max=10` with:
 ```
-python main.py input/XXX -cs -i_min 5 -i_max 10 -out 'cross{}.hdf5'
+python main.py <input_file> -cs -i_min 5 -i_max 10 -out 'cross{}.hdf5'
 ```
 This will save the temporary outputs in `cross5.hdf5`, `cross6.hdf5`, etc. 
 
@@ -25,22 +25,22 @@ This will save the temporary outputs in `cross5.hdf5`, `cross6.hdf5`, etc.
 ## Combining cross-sections
 To combine output-files in `<output_dir>/tmp/` into a final output-file (`<output_dir>/<species>.hdf5`):
 ```
-python main.py input/XXX -s
+python main.py <input_file> -s
 ```
 This will try to combine different PT-grids, but will only work if a rectangular grid can be made. You could expand the PT-grid of an existing save-file by placing it in the `<output_dir>/tmp/`, alongside more PT-points, and running the command above. 
 
 ## Converting to petitRADTRANS 2/3-format
 ```
-python main.py input/XXX --convert_to_pRT2
+python main.py <input_file> --convert_to_pRT2
 ```
 will create the `short_stream/` opacity-directory for petitRADTRANS version 2. 
 ```
-python main.py input/XXX --convert_to_pRT3
+python main.py <input_file> --convert_to_pRT3
 ```
 
 ## Plotting
 ```
-python main.py input/XXX --plot
+python main.py <input_file> --plot
 ```
 or (to plot the pRT-converted opacities):
 ```
@@ -49,7 +49,7 @@ python figures.py
 
 ## Downloading data
 ```
-python main.py input/XXX -d
+python main.py <input_file> -d
 ```
 - **VALD**: downloads the tab-separated NIST energy levels. Transitions need to be requested from the VALD database directly (https://www.astro.uu.se/valdwiki).
 - **Kurucz**: downloads the tab-separated NIST energy levels and transitions (`gf*.pos`) from Robert Kurucz' website.

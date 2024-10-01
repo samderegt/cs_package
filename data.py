@@ -197,7 +197,7 @@ class LineList:
         all_PT = np.array(all_PT)
         unique_P = np.unique(all_PT[:,0])
         for i, P_i in enumerate(unique_P):
-            unique_T_i = all_PT[all_PT[:,0]==P_i,1]
+            unique_T_i = np.unique(all_PT[all_PT[:,0]==P_i,1])
             if i == 0:
                 unique_T = unique_T_i.copy()
             
@@ -471,6 +471,9 @@ class ExoMol(LineList):
                 line = f.readline()
 
                 if i == 0:
+                    # Replace any tabs with spaces
+                    line = line.replace(b'\t', b' ')
+
                     # Infer column-widths in .trans file (only 1st line)
                     sep_line_0 = re.findall('\s+\S+', str(line))
                     col_widths = [len(col) for col in sep_line_0]
@@ -492,6 +495,7 @@ class ExoMol(LineList):
                         
                     idx_u = np.searchsorted(self.states[:,0], np.array(state_ID_u, dtype=int))
                     idx_l = np.searchsorted(self.states[:,0], np.array(state_ID_l, dtype=int))
+                    A = np.array(A, dtype=np.float64)
 
                     E_l = self.states[idx_l,1].astype(np.float64)
                     g_u = self.states[idx_u,2]
@@ -501,10 +505,16 @@ class ExoMol(LineList):
 
                     E_u = self.states[idx_u,1].astype(np.float64)
                     nu_0 = E_u - E_l
+                    nu_0 = nu_0.astype(np.float64)
                     nu_0 = np.abs(nu_0.astype(np.float64))
 
+                    # Remove any nu=0 transitions
+                    nu_0, A, g_u, E_u, J_u, E_l, J_l = CS._apply_mask(
+                        [nu_0, A, g_u, E_u, J_u, E_l, J_l], cond=(nu_0 != 0.)
+                        )
+
                     # Compute line-strength at reference temperature
-                    term1 = np.array(A, dtype=np.float64)*g_u / (8*np.pi*(100*sc.c)*nu_0**2)
+                    term1 = A*g_u / (8*np.pi*(100*sc.c)*nu_0**2)
                     term2 = np.exp(-c2*E_l/CS.T_0) / CS.q_0
                     term3 = (1-np.exp(-c2*nu_0/CS.T_0))
                     S_0 = term1 * term2 * term3
