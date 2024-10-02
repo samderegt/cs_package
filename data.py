@@ -362,9 +362,20 @@ class ExoMol(LineList):
             )
         states = np.array(states)
 
-        # Check that all states are read
-        #assert(np.all(np.diff(states[:,0])==1))
-        #assert(states[0,0]==1)
+        # Sort the states by their IDs
+        idx = np.argsort(states[:,0])
+        states = states[idx,:]
+
+        if np.any(np.diff(states[:,0])==0):
+            print('\n'+'#'*50)
+            print('Two (or more) states have the same ID:')
+            print(states[np.diff(states[:,0])==0,0])
+            print('#'*50)
+        if np.any(np.diff(states[:,0])>1):
+            print('\n'+'#'*50)
+            print('Some state IDs are skipped:')
+            print(states[np.diff(states[:,0])>1,0])
+            print('#'*50)
 
         return states
     
