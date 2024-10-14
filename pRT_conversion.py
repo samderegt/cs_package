@@ -149,8 +149,12 @@ def convert_to_pRT3_format(conf, Data, debug=False, **kwargs):
         
 
     # Create directory if not exist
-    pRT3_output_dir = f'{Data.output_dir}/pRT3/'
-    pathlib.Path(pRT3_output_dir).mkdir(parents=True, exist_ok=True)
+    if hasattr(conf, 'pRT3_output_dir'):
+        pRT3_output_dir = conf.pRT3_output_dir
+        assert pathlib.Path(pRT3_output_dir).exists(), f"Output directory {pRT3_output_dir} does not exist"
+    else:
+        pRT3_output_dir = f'{Data.output_dir}/pRT3/'
+        pathlib.Path(pRT3_output_dir).mkdir(parents=True, exist_ok=True)
 
 
     # (wave.size, P.size, T.size) -> (P.size, T.size, wave.size)
@@ -193,13 +197,31 @@ def convert_to_pRT3_format(conf, Data, debug=False, **kwargs):
     isotopologue_id = getattr(conf, 'isotopologue_id', None)
     assert isotopologue_id is not None, 'isotopologue_id must be defined in input file'
 
-    species = "".join(list(isotopologue_id.keys()))
-    species_isotopologue_name = "-".join([f"{v}{k}" for k,v in isotopologue_id.items()])
-    mass = Data.atoms_info.loc[species,'mass']
+    # species = "".join(list(isotopologue_id.keys())) # this leads to errors: e.g. 'H2O' -> 'HO'
+    species = getattr(conf, 'species', 'UNKNOWN')
+    # species_isotopologue_name = "-".join([f"{v}{k}" for k,v in isotopologue_id.items()])
+    if getattr(conf, 'element_count', None) is not None:
+        species_isotopologue_name_list = []
+        for key, value in isotopologue_id.items():
+            n_str = str(conf.element_count[key]) if conf.element_count[key] > 1 else ''
+            species_isotopologue_name_list.append(f"{value}{key}{n_str}")
+            
+        species_isotopologue_name = "-".join(species_isotopologue_name_list)
+    else:  
+        species_isotopologue_name = "-".join([f"{v}{k}" for k,v in isotopologue_id.items()])
+        
+    print(f"[convert_to_pRT3_format] Species isotopologue name: {species_isotopologue_name}")
+    
+    # mass = Data.atoms_info.loc[species,'mass']
+    mass = getattr(conf, 'mass', None)
+    assert mass is not None, 'mass must be defined in input file'
     if debug:
         print(f"[convert_to_pRT3_format] Atomic mass of {species_isotopologue_name}: {mass}")
     
     source = getattr(Data, 'database', 'UNKNOWN')
+    custom_label = getattr(conf, 'custom_label', '')
+    source += f'_{custom_label}' if custom_label != '' else ''
+    
     if source == 'UNKNOWN':
         print('WARNING: No database source found, set using "database" attribute. Defaulting to "UNKNOWN"')
         
