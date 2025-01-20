@@ -99,7 +99,7 @@ class LineList:
         #define EOS density function
         eos_table_info = getattr(conf, 'eos_table', None) #should be declared as boolean in input file
         if eos_table_info:
-            eos_table = read_csv('./EOS/EOS_rhotable_nonideal.txt', delim_whitespace = True, skiprows = 1)
+            eos_table = read_csv('./EOS/EOS_rhotable_nonideal_solar.txt', delim_whitespace = True, skiprows = 1)
             #produce the interpolation function for the density grid
             T = np.unique(eos_table['T[K]'])
             P = np.unique(eos_table['P[dyne_cm-2]'])
