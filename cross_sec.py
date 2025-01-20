@@ -120,13 +120,27 @@ class CrossSection:
         b = 1 / ((2/np.pi)*np.arctan(cutoff/gamma_L))
         return S*b
     
-    def _gamma_vdW(self, P, T, broad_per_trans, gamma_vdW=None):
+    def _gamma_vdW(self, P, T, broad_per_trans, gamma_vdW=None, rho_func=None):
         
         if gamma_vdW is not None:
             valid_gamma_vdW = (gamma_vdW != 1) # != 10^0
 
             # Number densities
-            N_tot = P / (sc.k*T) * (100)**(-3) # [cm^-3]
+            #if EOS flag is set to true, then EOS table is used to determine the number densities (instead of ideal gas law)
+            if (rho_func is not None) and (T >= 100) and (P >= 1e-4):    #These are the lower bounds of the EOS table P in Pascal
+                rho = rho_func((P * 10, T))  #need to convert the pressure to cgs for the interpolation fucntion
+                mass_H2, mass_He = broad_per_trans['H2']['mass'], broad_per_trans['He']['mass']
+                VMR_H2, VMR_He = broad_per_trans['H2']['VMR'], broad_per_trans['He']['VMR']
+                mean_mass = VMR_H2 * mass_H2 + VMR_He * mass_He
+                N_tot = rho * sc.N_A / mean_mass
+                #print('Difference in Ntot: ', N_tot, P / (sc.k*T) * (100)**(-3),  abs(N_tot - P / (sc.k*T) * (100)**(-3)) / N_tot)
+
+            else:
+                N_tot = P / (sc.k*T) * (100)**(-3) # [cm^-3]
+
+
+
+            
 
             alpha_H = 0.666793e-24
             mass_H  = 1.00784 * 1.0e-3/sc.N_A # [kg]
@@ -333,7 +347,8 @@ class CrossSection:
             gamma_vdW=None, 
             log_gamma_N=None, 
             delta_P=None, 
-            debug=False, 
+            debug=False,
+            rho_func=None, #edit Louis 
             **kwargs
             ):
         
@@ -353,7 +368,7 @@ class CrossSection:
         # Get line-strengths and -widths
         S = self._line_strength(T, S_0, E_low, nu_0)
         gamma_L = self._gamma_N(nu_0, log_gamma_N) + \
-            self._gamma_vdW(P, T, broad_per_trans, gamma_vdW)
+            self._gamma_vdW(P, T, broad_per_trans, gamma_vdW, rho_func)
         gamma_G = self._gamma_G(T, nu_0)
 
         # Select only lines within nu_grid
@@ -448,10 +463,10 @@ class CrossSection:
     def save_cross_sections(self, file):
 
         print(f'\nSaving cross-sections to file \"{file}\"')
-        if not self.contains_lines:
+        #if not self.contains_lines: #Louis commented this
             # No point in saving an array of 0's
-            print('No lines in current cross-sections, not saving')
-            return
+        #    print('No lines in current cross-sections, not saving')
+        #    return
 
         # Create directory if not exist
         pathlib.Path(file).parent.mkdir(parents=True, exist_ok=True)

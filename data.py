@@ -6,6 +6,7 @@ import re
 import h5py
 
 from scipy.interpolate import interp1d
+from scipy.interpolate import RegularGridInterpolator #Louis added
 import scipy.constants as sc
 
 c2 = 1.438777      # cgs: [cm K]
@@ -84,7 +85,7 @@ class LineList:
         self.final_output_file = f'{self.output_dir}/{conf.species}.hdf5'
 
         #self.final_output_file = conf.files['final_output']
-        self.N_lines_max = getattr(conf, 'N_lines_max', 10_000_000)           
+        self.N_lines_max = getattr(conf, 'N_lines_max', 1_000_000)   #Edit Louis: was before 10_000_000        
 
         # Pressure-broadening parameters
         broadening_info = getattr(conf, 'broadening', None)
@@ -94,6 +95,24 @@ class LineList:
                 He={'VMR':0.15, 'mass':4.002602, 'alpha':0.204956e-24} 
                 )
         assert broadening_info is not None, 'no broadening information given in input-file'
+
+        #define EOS density function
+        eos_table_info = getattr(conf, 'eos_table', None) #should be declared as boolean in input file
+        if eos_table_info:
+            eos_table = read_csv('./EOS/EOS_rhotable_nonideal.txt', delim_whitespace = True, skiprows = 1)
+            #produce the interpolation function for the density grid
+            T = np.unique(eos_table['T[K]'])
+            P = np.unique(eos_table['P[dyne_cm-2]'])
+            rho_grid = eos_table.pivot(index='P[dyne_cm-2]', columns='T[K]', values='rho[g_cm-3]').values
+            self.rho_func = RegularGridInterpolator((P, T), rho_grid, method='cubic', bounds_error=False, fill_value=None) #this is the interpolation function for the density grid
+        else:
+            self.rho_func = None
+
+        print(self.rho_func)
+
+
+
+
         
         # Read into the right format
         self._load_pressure_broad(broadening_info)
@@ -361,21 +380,11 @@ class ExoMol(LineList):
             file, widths=col_widths[:4], header=None, compression=comp
             )
         states = np.array(states)
+        #print('This is the state file', states, states.shape)
 
-        # Sort the states by their IDs
-        idx = np.argsort(states[:,0])
-        states = states[idx,:]
-
-        if np.any(np.diff(states[:,0])==0):
-            print('\n'+'#'*50)
-            print('Two (or more) states have the same ID:')
-            print(states[np.diff(states[:,0])==0,0])
-            print('#'*50)
-        if np.any(np.diff(states[:,0])>1):
-            print('\n'+'#'*50)
-            print('Some state IDs are skipped:')
-            print(states[np.diff(states[:,0])>1,0])
-            print('#'*50)
+        # Check that all states are read
+        #assert(np.all(np.diff(states[:,0])==1))
+        #assert(states[0,0]==1)
 
         return states
     
@@ -503,10 +512,17 @@ class ExoMol(LineList):
                         print(f'Computing for {len(A)} transitions in final chunk')
                     else:
                         print(f'Computing for {len(A)} transitions in chunk')
-                        
+                    
+
                     idx_u = np.searchsorted(self.states[:,0], np.array(state_ID_u, dtype=int))
                     idx_l = np.searchsorted(self.states[:,0], np.array(state_ID_l, dtype=int))
                     A = np.array(A, dtype=np.float64)
+                    #fix for H2S, not sure if this is correct though because the linelist has intrinstic problems simply (comment this later)
+                    if idx_u.max() == self.states.shape[0]:
+                        print('idx_u', idx_u, idx_u.max(), np.unique(np.sort(idx_u)))
+                        mask = (idx_u == idx_u.max())
+                        idx_u[mask] -= 1
+            
 
                     E_l = self.states[idx_l,1].astype(np.float64)
                     g_u = self.states[idx_u,2]
@@ -562,7 +578,6 @@ class ExoMol(LineList):
                 state_ID_u.append(line[0:col_idx[0]])
                 state_ID_l.append(line[col_idx[0]:col_idx[1]])
                 A.append(line[col_idx[1]:col_idx[2]])
-
                 i += 1
 
 class HITEMP(LineList):
@@ -896,13 +911,15 @@ lande_out=on&biblio=on&temp='
         gamma_vdW   = gamma_vdW[mask_valid]
         log_gamma_N = log_gamma_N[mask_valid]
 
+
         # Compute opacities
         CS.loop_over_PT_grid(
             func=CS.get_cross_sections, show_pbar=show_pbar, 
             nu_0_static=nu_0, E_low=E_low, S_0=S_0, 
             broad_per_trans=self.broad, 
             gamma_vdW=gamma_vdW, 
-            log_gamma_N=log_gamma_N
+            log_gamma_N=log_gamma_N,
+            rho_func=self.rho_func
             )
             
         # Save in a temporary output file

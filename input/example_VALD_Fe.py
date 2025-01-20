@@ -1,4 +1,6 @@
 import numpy as np
+import sys
+
 
 database = 'VALD'
 species  = 'Fe'
@@ -22,6 +24,8 @@ files = dict(
 #    He={'VMR':0.15, 'mass':4.002602, 'alpha':0.204956e-24} # DEFAULT for database='Kurucz'
 #    #H2={'VMR':0.85, 'C':0.85}, He={'VMR':0.15, 'C':0.42}, # (Kurucz & Furenlid 1979)
 #    )
+
+eos_table = True
 
 P_grid = np.logspace(-5,2,8)        # [bar]   # can be given in cmd, one point at a time
 T_grid = np.array([1000,2000,3000]) # [K]     # can be given in cmd, one point at a time
