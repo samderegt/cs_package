@@ -127,7 +127,7 @@ class CrossSection:
 
             # Number densities
             #if EOS flag is set to true, then EOS table is used to determine the number densities (instead of ideal gas law)
-            if (rho_func is not None) and (T >= 100) and (P >= 1e-4):    #These are the lower bounds of the EOS table P in Pascal
+            if (rho_func is not None) and (T >= 100) and (P >= 1):    #These are the lower bounds of the EOS table P in Pascal
                 rho = rho_func((P * 10, T))  #need to convert the pressure to cgs for the interpolation fucntion
                 mass_H2, mass_He = broad_per_trans['H2']['mass'], broad_per_trans['He']['mass']
                 VMR_H2, VMR_He = broad_per_trans['H2']['VMR'], broad_per_trans['He']['VMR']
