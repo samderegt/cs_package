@@ -149,8 +149,12 @@ def convert_to_pRT3_format(conf, Data, debug=False, **kwargs):
         
 
     # Create directory if not exist
-    pRT3_output_dir = f'{Data.output_dir}/pRT3/'
-    pathlib.Path(pRT3_output_dir).mkdir(parents=True, exist_ok=True)
+    if hasattr(conf, 'pRT3_output_dir'):
+        pRT3_output_dir = conf.pRT3_output_dir
+        assert pathlib.Path(pRT3_output_dir).exists(), f"Output directory {pRT3_output_dir} does not exist"
+    else:
+        pRT3_output_dir = f'{Data.output_dir}/pRT3/'
+        pathlib.Path(pRT3_output_dir).mkdir(parents=True, exist_ok=True)
 
 
     # (wave.size, P.size, T.size) -> (P.size, T.size, wave.size)
@@ -193,16 +197,30 @@ def convert_to_pRT3_format(conf, Data, debug=False, **kwargs):
     isotopologue_id = getattr(conf, 'isotopologue_id', None)
     assert isotopologue_id is not None, 'isotopologue_id must be defined in input file'
 
-    species = "".join(list(isotopologue_id.keys()))
-    species_isotopologue_name = "-".join([f"{v}{k}" for k,v in isotopologue_id.items()])
-    mass = Data.atoms_info.loc[species,'mass']
+    species = getattr(conf, 'species', None)
+    if species is None:
+        species = "".join(list(isotopologue_id.keys()))
+    print(f"[convert_to_pRT3_format] Species name: {species}")
+
+    species_isotopologue_name = getattr(conf, 'species_isotopologue_name', None)
+    if species_isotopologue_name is None:
+        species_isotopologue_name = "-".join([f"{v}{k}" for k,v in isotopologue_id.items()])
+    print(f"[convert_to_pRT3_format] Species isotopologue name: {species_isotopologue_name}")
+
+    mass = getattr(conf, 'mass', None)
+    if mass is None:
+        mass = Data.atoms_info.loc[species,'mass']
+    assert mass is not None, 'mass must be defined in input file'
+
     if debug:
         print(f"[convert_to_pRT3_format] Atomic mass of {species_isotopologue_name}: {mass}")
     
     source = getattr(Data, 'database', 'UNKNOWN')
     if source == 'UNKNOWN':
         print('WARNING: No database source found, set using "database" attribute. Defaulting to "UNKNOWN"')
-        
+    custom_label = getattr(conf, 'custom_label', '')
+    source += f'_{custom_label}' if custom_label != '' else ''
+
     resolving_power = kwargs.get('resolving_power', 1e6)
     file_pRT3 = get_opacity_filename(
         resolving_power=resolving_power,
@@ -215,7 +233,6 @@ def convert_to_pRT3_format(conf, Data, debug=False, **kwargs):
     # assert output_dir.exists(), f"Output directory {output_dir} does not exist"
     out_dir_species = pathlib.Path(pRT3_output_dir) / species / species_isotopologue_name
     out_dir_species.mkdir(parents=True, exist_ok=True)
-    
     hdf5_opacity_file = out_dir_species / f'{file_pRT3}.xsec.petitRADTRANS.h5'
     if debug:
         print(f'[convert_to_pRT3_format] Saving to file: {hdf5_opacity_file}...')

@@ -4,12 +4,13 @@ database = 'HITEMP'
 species  = '12CO'
 mass = 28.01 
 isotope_idx = 1 # !! HITEMP specific !! .par-file includes all isotopologues
+isotope_abundance = 9.86544e-1
 isotopologue_id = {'C':12, 'O':16}
 
 # Instructions to download from HITRAN/HITEMP database
 urls = [
     # Transitions (see https://hitran.org/hitemp/)
-    'https://hitran.org/hitemp/data/bzip2format/05_HITEMP2019.par.bz2', 
+    #'https://hitran.org/hitemp/data/bzip2format/05_HITEMP2019.par.bz2', # DEPRECATED (requires login)
 
     # Partition function (see https://hitran.org/docs/iso-meta/)
     'https://hitran.org/data/Q/q26.txt', 

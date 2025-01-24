@@ -288,7 +288,7 @@ class ExoMol(LineList):
         trans_files = []
         print('\nTransition file(s):')
         # Download transition files
-        N_trans = d['dataset']['transitions']['number_of_transition_files']
+        N_trans = d['dataset']['transitions'].get('number_of_transition_files', 1)
         if N_trans == 1:
             trans_file_i = wget_if_not_exist(f'{url_base}.trans.bz2', input_dir)
             print()
@@ -604,6 +604,7 @@ class HITEMP(LineList):
 
         # Isotope index (HITEMP/HITRAN-specific)
         self.isotope_idx = getattr(conf, 'isotope_idx', 1)
+        self.isotope_abundance = getattr(conf, 'isotope_abundance', 1.)
 
     def get_cross_sections(self, conf, tmp_output_file='cross{}.hdf5', show_pbar=True, **kwargs):
 
@@ -626,19 +627,22 @@ class HITEMP(LineList):
         )
         for trans_i in zip_file:
             trans_i = np.array(trans_i)
-
+            
             if self.isotope_idx is not None:
+                # Remove any non-integers
+                trans_i = trans_i[np.isin(trans_i[:,1].astype(str), list('0123456789'))]
+
                 # Only lines from one isotope
                 print(f'Reading isotope-index {self.isotope_idx}')
-                trans_i = trans_i[trans_i[:,1]==self.isotope_idx]
+                trans_i = trans_i[trans_i[:,1].astype(int)==self.isotope_idx]
 
             # Sort lines by central wavenumber (!! might only work if delta_P==0 !!)
             trans_i = trans_i[np.argsort(trans_i[:,2]),:]
-
+            
             # Unit conversion
-            nu_0  = trans_i[:,2] * (100*sc.c)        # [cm^-1] -> [s^-1]
-            E_low = trans_i[:,7] * sc.h * (100*sc.c) # [cm^-1] -> [kg m^2 s^-2] or [J]
-            S_0   = trans_i[:,3] * (100*sc.c)        # [cm^-1/(molec. cm^-2)] -> [s^-1/(molec. cm^-2)]
+            nu_0  = trans_i[:,2].astype(np.float64) * (100*sc.c)        # [cm^-1] -> [s^-1]
+            E_low = trans_i[:,7].astype(np.float64) * sc.h * (100*sc.c) # [cm^-1] -> [kg m^2 s^-2] or [J]
+            S_0   = trans_i[:,3].astype(np.float64) * (100*sc.c)/self.isotope_abundance        # [cm^-1/(molec. cm^-2)] -> [s^-1/(molec. cm^-2)]
             
             # Compute opacities
             CS.loop_over_PT_grid(
@@ -647,8 +651,9 @@ class HITEMP(LineList):
                 broad_per_trans=self.broad, 
                 delta_P=np.zeros_like(nu_0) # !! for P-dependent shifts !!
                 )
-        
+            
         # Save in a temporary output file
+        CS.contains_lines = True
         CS.save_cross_sections(tmp_output_file)
 
 class VALD_Kurucz(LineList):
@@ -666,8 +671,8 @@ class VALD_Kurucz(LineList):
         # Download the NIST energy levels
         # Validate the element input
         element = conf.species
-        assert(element in cls.atoms_info.index)
-        
+        assert element in cls.atoms_info.index, 'Element not in atoms_info.csv'
+
         # Construct the NIST URL for downloading energy levels
         url = f'https://physics.nist.gov/cgi-bin/ASD/energy1.pl?de=0&\
 spectrum={element}+I&submit=Retrieve+Data&units=0&format=3&output=0&page_size=15&\

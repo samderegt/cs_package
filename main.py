@@ -97,6 +97,6 @@ if __name__ == '__main__':
 
     # Convert to the petitRADTRANS format
     if args.convert_to_pRT2:
-        convert_to_pRT2_format(conf, Data=D)
+        convert_to_pRT2_format(conf, Data=D, ncpus=20)
     if args.convert_to_pRT3:
-        convert_to_pRT3_format(conf, Data=D)
+        convert_to_pRT3_format(conf, Data=D, crop_to_28um=True)

@@ -3,6 +3,7 @@ import numpy as np
 database = 'ExoMol'
 species  = 'H2O'
 mass = 18.010565 # (in .json file)
+isotopologue_id = {'H2':1, 'O':16}
 
 # Instructions to download from ExoMol database
 url_def_json = 'https://www.exomol.com/db/H2O/1H2-16O/POKAZATEL/1H2-16O__POKAZATEL.def.json'
@@ -35,8 +36,9 @@ broadening = dict(
         ), 
 )
 
-P_grid = np.logspace(-5,2,8) # [bar]   # can be given in cmd, one point at a time
-T_grid = np.array([1000,])   # [K]     # can be given in cmd, one point at a time
+#P_grid = np.logspace(-5,2,8) # [bar]   # can be given in cmd, one point at a time
+P_grid = np.array([0.1,1.0,10.0]) # [bar]   # can be given in cmd, one point at a time
+T_grid = np.array([1000,2000])   # [K]     # can be given in cmd, one point at a time
 
 wave_min = 1.0/3.0; wave_max = 50.0 # [um]
 delta_nu = 0.01 # [cm^-1]
