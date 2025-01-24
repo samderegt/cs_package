@@ -126,21 +126,18 @@ class CrossSection:
             valid_gamma_vdW = (gamma_vdW != 1) # != 10^0
 
             # Number densities
-            #if EOS flag is set to true, then EOS table is used to determine the number densities (instead of ideal gas law)
-            if (rho_func is not None) and (T >= 100) and (P >= 1):    #These are the lower bounds of the EOS table P in Pascal
-                rho = rho_func((P * 10, T))  #need to convert the pressure to cgs for the interpolation fucntion
+            if (rho_func is not None) and (T >= 100) and (P >= 1):
+                # Use equation-of-state table to determine number densities (if within bounds)                
+                rho = rho_func((P * 10, T))  # Convert Pa to cgs
                 mass_H2, mass_He = broad_per_trans['H2']['mass'], broad_per_trans['He']['mass']
-                VMR_H2, VMR_He = broad_per_trans['H2']['VMR'], broad_per_trans['He']['VMR']
+                VMR_H2, VMR_He   = broad_per_trans['H2']['VMR'], broad_per_trans['He']['VMR']
+
                 mean_mass = VMR_H2 * mass_H2 + VMR_He * mass_He
                 N_tot = rho * sc.N_A / mean_mass
-                #print('Difference in Ntot: ', N_tot, P / (sc.k*T) * (100)**(-3),  abs(N_tot - P / (sc.k*T) * (100)**(-3)) / N_tot)
 
             else:
+                # Use ideal gas law to determine number densities
                 N_tot = P / (sc.k*T) * (100)**(-3) # [cm^-3]
-
-
-
-            
 
             alpha_H = 0.666793e-24
             mass_H  = 1.00784 * 1.0e-3/sc.N_A # [kg]
@@ -347,8 +344,8 @@ class CrossSection:
             gamma_vdW=None, 
             log_gamma_N=None, 
             delta_P=None, 
-            debug=False,
-            rho_func=None, #edit Louis 
+            debug=False, 
+            rho_func=None, 
             **kwargs
             ):
         
@@ -463,10 +460,10 @@ class CrossSection:
     def save_cross_sections(self, file):
 
         print(f'\nSaving cross-sections to file \"{file}\"')
-        #if not self.contains_lines: #Louis commented this
+        if not self.contains_lines:
             # No point in saving an array of 0's
-        #    print('No lines in current cross-sections, not saving')
-        #    return
+            print('No lines in current cross-sections, not saving')
+            return
 
         # Create directory if not exist
         pathlib.Path(file).parent.mkdir(parents=True, exist_ok=True)
