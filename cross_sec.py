@@ -120,13 +120,24 @@ class CrossSection:
         b = 1 / ((2/np.pi)*np.arctan(cutoff/gamma_L))
         return S*b
     
-    def _gamma_vdW(self, P, T, broad_per_trans, gamma_vdW=None):
+    def _gamma_vdW(self, P, T, broad_per_trans, gamma_vdW=None, rho_func=None):
         
         if gamma_vdW is not None:
             valid_gamma_vdW = (gamma_vdW != 1) # != 10^0
 
             # Number densities
-            N_tot = P / (sc.k*T) * (100)**(-3) # [cm^-3]
+            if (rho_func is not None) and (T >= 100) and (P >= 1):
+                # Use equation-of-state table to determine number densities (if within bounds)                
+                rho = rho_func((P * 10, T))  # Convert Pa to cgs
+                mass_H2, mass_He = broad_per_trans['H2']['mass'], broad_per_trans['He']['mass']
+                VMR_H2, VMR_He   = broad_per_trans['H2']['VMR'], broad_per_trans['He']['VMR']
+
+                mean_mass = VMR_H2 * mass_H2 + VMR_He * mass_He
+                N_tot = rho * sc.N_A / mean_mass
+
+            else:
+                # Use ideal gas law to determine number densities
+                N_tot = P / (sc.k*T) * (100)**(-3) # [cm^-3]
 
             alpha_H = 0.666793e-24
             mass_H  = 1.00784 * 1.0e-3/sc.N_A # [kg]
@@ -334,6 +345,7 @@ class CrossSection:
             log_gamma_N=None, 
             delta_P=None, 
             debug=False, 
+            rho_func=None, 
             **kwargs
             ):
         
@@ -353,7 +365,7 @@ class CrossSection:
         # Get line-strengths and -widths
         S = self._line_strength(T, S_0, E_low, nu_0)
         gamma_L = self._gamma_N(nu_0, log_gamma_N) + \
-            self._gamma_vdW(P, T, broad_per_trans, gamma_vdW)
+            self._gamma_vdW(P, T, broad_per_trans, gamma_vdW, rho_func)
         gamma_G = self._gamma_G(T, nu_0)
 
         # Select only lines within nu_grid

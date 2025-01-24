@@ -23,6 +23,8 @@ files = dict(
 #    #H2={'VMR':0.85, 'C':0.85}, He={'VMR':0.15, 'C':0.42}, # (Kurucz & Furenlid 1979)
 #    )
 
+eos_table = './EOS/EOS_rhotable_nonideal_solar.txt'
+
 P_grid = np.logspace(-5,2,8)        # [bar]   # can be given in cmd, one point at a time
 T_grid = np.array([1000,2000,3000]) # [K]     # can be given in cmd, one point at a time
 

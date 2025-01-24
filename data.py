@@ -5,7 +5,6 @@ import bz2
 import re
 import h5py
 
-from scipy.interpolate import interp1d
 import scipy.constants as sc
 
 c2 = 1.438777      # cgs: [cm K]
@@ -94,6 +93,23 @@ class LineList:
                 He={'VMR':0.15, 'mass':4.002602, 'alpha':0.204956e-24} 
                 )
         assert broadening_info is not None, 'no broadening information given in input-file'
+
+        self.rho_func = None # EOS density function
+        eos_table = getattr(conf, 'eos_table', None) # Should be string in input file
+        if eos_table is not None:
+            # Load the EOS table
+            eos_table = read_csv(eos_table, delim_whitespace=True, skiprows=1)
+            T = np.unique(eos_table['T[K]'])
+            P = np.unique(eos_table['P[dyne_cm-2]'])
+            rho_grid = eos_table.pivot(
+                index='P[dyne_cm-2]', columns='T[K]', values='rho[g_cm-3]'
+                ).values
+            
+            # Create the interpolation function for the density grid
+            from scipy.interpolate import RegularGridInterpolator
+            self.rho_func = RegularGridInterpolator(
+                (P, T), rho_grid, method='cubic', bounds_error=False, fill_value=None
+                )
         
         # Read into the right format
         self._load_pressure_broad(broadening_info)
@@ -907,7 +923,8 @@ lande_out=on&biblio=on&temp='
             nu_0_static=nu_0, E_low=E_low, S_0=S_0, 
             broad_per_trans=self.broad, 
             gamma_vdW=gamma_vdW, 
-            log_gamma_N=log_gamma_N
+            log_gamma_N=log_gamma_N, 
+            rho_func=self.rho_func
             )
             
         # Save in a temporary output file
