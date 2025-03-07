@@ -25,6 +25,7 @@ class CrossSection:
         # Create wavenumber grid
         self._set_nu_grid(conf)
         self.adaptive_nu_grid = getattr(conf, 'adaptive_nu_grid', False)
+        self.resolution_local_cutoff = getattr(conf, 'resolution_local_cutoff', 1e6) # Same as ExoMol
         
         # (P,T)-grid to compute cross-sections on
         self.P_grid = np.asarray(conf.P_grid) * 1e5 # [bar] -> [Pa]
@@ -210,7 +211,8 @@ class CrossSection:
     def _local_cutoff(self, S, nu_0, factor):
 
         # Round to zero-th decimal
-        nu_bin = np.around((nu_0-self.nu_min)/self.delta_nu).astype(int)
+        delta_nu = nu_0 / self.resolution_local_cutoff
+        nu_bin = np.around((nu_0-self.nu_min)/delta_nu).astype(int)
 
         # Upper and lower indices of lines within bins
         _, nu_bin_idx = np.unique(nu_bin, return_index=True)
