@@ -748,10 +748,13 @@ class LineByLine(CrossSections, LineProfileHelper):
         )
 
         # Run parallel jobs as soon as CPUs become available
-        jobs = joblib.Parallel(return_as='generator_unordered', n_jobs=self.N_CPUs)(
-            joblib.delayed(function)(P, T, **kwargs) for P in self.P_grid for T in self.T_grid
-            )
-        with tqdm(**pbar_kwargs) as pbar:
+        with joblib.Parallel(return_as='generator_unordered', n_jobs=self.N_CPUs) as parallel, tqdm(**pbar_kwargs) as pbar:
+            jobs = parallel(
+                joblib.delayed(function)(P, T, **kwargs)
+                for P in self.P_grid
+                for T in self.T_grid
+                )
+
             for output_i in jobs:
                 if output_i is None:
                     # No lines computed
