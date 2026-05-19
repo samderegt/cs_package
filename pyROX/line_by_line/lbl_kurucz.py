@@ -98,7 +98,10 @@ class LBL_Kurucz(LineByLine):
             )
         self.impact_shift_info = self._read_impact_info(
             impact_info=getattr(config, 'impact_shift_info', {})
-            )        
+            )
+        
+        # Quantum numbers/labels to ignore
+        self.ignore_transitions = getattr(config, 'ignore_transitions', [])
 
     def _read_impact_info(self, impact_info={}):
         """
@@ -187,9 +190,32 @@ class LBL_Kurucz(LineByLine):
         transitions[:,1] = np.array([str(s).replace(' ', '.') for s in transitions[:,1]])
         gf = 10**transitions[:,1].astype(float)
 
-        # Calculate the statistical weights as 2J+1
-        g_1 = 2*transitions[:,4].astype(float) + 1
-        g_2 = 2*transitions[:,8].astype(float) + 1
+        # Rotational quantum numbers
+        J_1 = transitions[:,4].astype(float)
+        J_2 = transitions[:,8].astype(float)
+
+        # Quantum labels used for masking
+        label_1 = np.strings.strip(transitions[:,6].astype(str))
+        label_2 = np.strings.strip(transitions[:,10].astype(str))
+
+        # Ignore transitions with specific quantum numbers/labels
+        ignore_mask = np.zeros_like(label_1, dtype=bool)
+        for (J_1_i, label_1_i, J_2_i, label_2_i) in self.ignore_transitions:
+            ignore_mask |= (
+                (J_1 == J_1_i) & (label_1 == label_1_i.strip()) & \
+                (J_2 == J_2_i) & (label_2 == label_2_i.strip())
+            )
+        transitions = transitions[~ignore_mask]
+
+        gf  = gf[~ignore_mask]
+        J_1 = J_1[~ignore_mask]
+        J_2 = J_2[~ignore_mask]
+        label_1 = label_1[~ignore_mask]
+        label_2 = label_2[~ignore_mask]
+
+        # Statistical weights as 2J+1
+        g_1 = 2*J_1 + 1
+        g_2 = 2*J_2 + 1
 
         # Transition energies
         E_1 = np.abs(transitions[:,3].astype(float)) * 1e2*sc.c # [cm^-1] -> [s^-1]
@@ -359,10 +385,8 @@ class LBL_Kurucz(LineByLine):
             # Get the width/shift parameters
             number_density_perturber = number_density * info['VMR'] # [m^-3]
             number_density_reference = info['number_density_reference']
-            A = info['A'] # [s^-1](-ish)
-            b = info['b']
 
-            for nu_0_i in info['nu_0']:
+            for nu_0_i, A_i, b_i in zip(info['nu_0'], info['A'], info['b']):
                 # Check where to replace
                 idx = np.isclose(nu_0_static, nu_0_i, atol=1e-8)
                 if np.sum(idx) != 1:
@@ -372,13 +396,13 @@ class LBL_Kurucz(LineByLine):
                 if gamma is not None:
                     # Width
                     gamma[idx] = (
-                        A * T**b * number_density_perturber / number_density_reference
+                        A_i * T**b_i * number_density_perturber / number_density_reference
                     ) # [s^-1]
                     continue
                 
                 # Shift
                 nu_0[idx] += (
-                    A * T**b * number_density_perturber / number_density_reference
+                    A_i * T**b_i * number_density_perturber / number_density_reference
                 ) # [s^-1]
 
         if gamma is not None:

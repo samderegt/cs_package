@@ -61,7 +61,6 @@ If you used pyROX for your research, please cite the following paper:
 
    tutorial
    databases
-   parallelisation
    contributing
 
 .. toctree::
