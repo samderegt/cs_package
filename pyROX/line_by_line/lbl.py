@@ -1,3 +1,4 @@
+import os
 import numpy as np
 from pandas import read_fwf
 from scipy.interpolate import interp1d
@@ -6,6 +7,7 @@ from scipy.special import wofz
 import pathlib
 import datetime
 
+import joblib
 from tqdm import tqdm
 
 from pyROX import utils, sc, CrossSections
@@ -429,7 +431,7 @@ class LineProfileHelper:
         N_chunks = int(np.ceil(len(S)/N_lines_in_chunk))
         N_nu_grid = len(nu_grid)
 
-        # Construct the temporary line-profile grid        
+        # Construct the temporary line-profile grid
         nu_line = np.arange(0, wing_cutoff_distance+delta_nu, delta_nu)
         nu_line = np.concatenate([-nu_line[1:][::-1], nu_line])
         nu_line = np.repeat(nu_line[None,:], N_lines_in_chunk, axis=0)
@@ -707,7 +709,10 @@ class LineByLine(CrossSections, LineProfileHelper):
         if VMR_total > 1.0:
             raise ValueError('Total volume mixing ratio of perturbers exceeds 1.0.')
         if VMR_total < 1.0:
-            utils.warnings.warn('Total volume mixing ratio of perturbers is less than 1.0.')
+            utils.warnings.warn(
+                'Total volume mixing ratio of perturbers is less than 1.0.', 
+                utils.pyROXWarning
+                )
 
         print(f'  Mean molecular weight of perturbers: {self.mean_mass/sc.amu:.2f} amu')
 
@@ -729,7 +734,7 @@ class LineByLine(CrossSections, LineProfileHelper):
 
     def iterate_over_PT_grid(self, function, progress_bar=True, **kwargs):
         """
-        Iterates over the pressure-temperature grid and apply a function.
+        Iterate over the pressure-temperature grid in parallel and apply a function.
 
         Args:
             function (callable): Function to apply at each grid point.
@@ -741,20 +746,35 @@ class LineByLine(CrossSections, LineProfileHelper):
             total=self.N_PT, disable=(not progress_bar), 
             bar_format='{l_bar}{bar:20}{r_bar}{bar:-20b}', 
         )
-        with tqdm(**pbar_kwargs) as pbar:
 
-            # Loop over all PT-points
-            for idx_P, P in enumerate(self.P_grid):
-                for idx_T, T in enumerate(self.T_grid):
+        # Run parallel jobs as soon as CPUs become available
+        with joblib.Parallel(return_as='generator_unordered', n_jobs=self.N_CPUs) as parallel, tqdm(**pbar_kwargs) as pbar:
+            jobs = parallel(
+                joblib.delayed(function)(P, T, **kwargs)
+                for P in self.P_grid
+                for T in self.T_grid
+                )
 
-                    function(P, T, **kwargs)
-                    postfix = {
-                        'P': f'{P*1e-5:.0e} bar', 'T': f'{T:.0f} K',
-                    }
-                    if hasattr(self, 'N_lines_computed'):
-                        postfix['N_lines_computed'] = '{}'.format(self.N_lines_computed)
-                    pbar.set_postfix(**postfix, refresh=False)
+            for output_i in jobs:
+                if output_i is None:
+                    # No lines computed
                     pbar.update(1)
+                    continue
+
+                sigma_i, P_i, T_i, N_lines_computed_i = output_i
+
+                # Insert unordered output at the correct indices
+                idx_P = np.searchsorted(self.P_grid, P_i)
+                idx_T = np.searchsorted(self.T_grid, T_i)                
+                self.sigma[:,idx_P,idx_T] += sigma_i
+
+                # Update the progress bar
+                postfix = {
+                    'P': f'{P_i*1e-5:.0e} bar', 'T': f'{T_i:.0f} K',
+                    'N_lines_computed': f'{N_lines_computed_i:d}', 
+                }
+                pbar.set_postfix(**postfix, refresh=False)
+                pbar.update(1)
     
     def calculate_cross_sections(self, P, T, nu_0, S_0, E_low, A, delta=None, **kwargs):
         """
@@ -770,7 +790,7 @@ class LineByLine(CrossSections, LineProfileHelper):
             delta (array, optional): Pressure shift coefficients.
             **kwargs: Additional arguments.
         """
-        self.N_lines_computed = 0
+        N_lines_computed = 0
 
         # Get the line-widths
         gamma_N   = self.compute_natural_broadening(A) # Lorentzian components
@@ -804,12 +824,12 @@ class LineByLine(CrossSections, LineProfileHelper):
         )
         if len(S) == 0:
             return # No more lines
-        self.N_lines_computed = len(S)
+        N_lines_computed = len(S)
         
         # Change to a coarse grid if lines are substantially broadened
         gamma_V = self.compute_voigt_width(gamma_G, gamma_L) # Voigt width
         nu_grid_to_use = self._setup_coarse_nu_grid(adaptive_delta_nu=np.mean(gamma_V)/6)
-        delta_nu_to_use = np.diff(nu_grid_to_use[:2]) # [s^-1]
+        delta_nu_to_use = nu_grid_to_use[1]-nu_grid_to_use[0] # [s^-1]
         
         # Wing cutoff from given lambda-function
         wing_cutoff_distance = self.wing_cutoff(np.mean(gamma_V), P) # [s^-1]
@@ -833,10 +853,7 @@ class LineByLine(CrossSections, LineProfileHelper):
             # Interpolate to the original grid
             sigma = np.interp(self.nu_grid, nu_grid_to_use, sigma)
 
-        # Add to the total array
-        idx_P = np.searchsorted(self.P_grid, P)
-        idx_T = np.searchsorted(self.T_grid, T)
-        self.sigma[:,idx_P,idx_T] += sigma
+        return sigma, P, T, N_lines_computed
 
     def calculate_temporary_outputs(self, overwrite=False, save_in_one_file=False, files_range=None, **kwargs):
         """
@@ -1123,8 +1140,8 @@ class LineByLine(CrossSections, LineProfileHelper):
         pRT_file = pRT_file.format(
             isotopologue_id, linelist, resolution, wave_min, wave_max
         )
-        pRT_file = self.output_data_dir / pRT_file
+        self.pRT_file = self.output_data_dir / pRT_file
 
         # Save the datasets
-        utils.save_to_hdf5(pRT_file, data=data, attrs=attrs, compression=None)
-        print(f'  Saved to \"{pRT_file}\"')
+        utils.save_to_hdf5(self.pRT_file, data=data, attrs=attrs, compression=None)
+        print(f'  Saved to \"{self.pRT_file}\"')

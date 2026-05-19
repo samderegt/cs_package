@@ -3,11 +3,13 @@ database = 'kurucz' # Can be ['exomol', 'hitran', 'hitemp', 'kurucz']
 species  = 'k'      # Species name
 # mass = 39.0983     # Will be read from atoms_info.csv
 
+N_CPUs = 4 # Number of CPUs for parallelisation
+
 # Input/output-directories
 input_data_dir  = './examples/kurucz_k/input_data/'
 output_data_dir = './examples/kurucz_k/'
 
-# Downloading can be done automaticall from the Kurucz database
+# Downloading can be done automatically from the Kurucz database
 # urls = []
 
 # Input-data files
@@ -24,6 +26,22 @@ T_grid = np.array([1000,2000]) # [K]
 # Wavenumber grid
 wave_min = 0.3; wave_max = 28.0 # [um]
 delta_nu = 0.01 # [cm^-1]
+
+# Power-law impact-width/shift parameters gamma=A*T^b*n_perturber/n_reference
+# impact_width_info = dict(
+#     H2 = dict(VMR=0.85, A=[], b=[], nu_0=[], n_reference=1e20), 
+#     He = dict(VMR=0.15, A=[], b=[], nu_0=[], n_reference=1e20),
+# )
+# impact_shift_info = dict(
+#     H2 = dict(VMR=0.85, A=[], b=[], nu_0=[], n_reference=1e20), 
+#     He = dict(VMR=0.15, A=[], b=[], nu_0=[], n_reference=1e20),
+# )
+
+# Ignore quantum transitions to include custom line profiles outside of pyROX
+# ignore_transitions = [
+#     (0.5, '4s 2S', 1.5, '4p 2P'), # J_1, label_1, J_2, label_2
+#     (0.5, '4s 2S', 0.5, '4p 2P'), 
+#     ]
 
 # Pressure-broadening information
 # perturber_info = {} # K is an alkali, defaults to Schweitzer et al. (1996) description
