@@ -734,7 +734,7 @@ class LineByLine(CrossSections, LineProfileHelper):
 
     def iterate_over_PT_grid(self, function, progress_bar=True, **kwargs):
         """
-        Iterates over the pressure-temperature grid and apply a function.
+        Iterate over the pressure-temperature grid in parallel and apply a function.
 
         Args:
             function (callable): Function to apply at each grid point.
