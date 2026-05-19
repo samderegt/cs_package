@@ -1,6 +1,6 @@
-============
-Contributing
-============
+==================================
+Contributing and future directions
+==================================
 
 We welcome your input and contributions to pyROX! If you have suggestions for new features, or if you have found a potential bug, do not hesitate to let us know by `opening an issue on GitHub <https://github.com/samderegt/pyROX/issues>`_.
 
@@ -31,3 +31,14 @@ If you would like to implement a new feature or fix a bug, please follow these s
    .. note:: Creating the pull request will automatically trigger some tests to ensure that the changes do not break any existing functionality. You can also run the tests locally by executing ``pytest`` in the root directory.
 
 6. **Review and discuss**: We will now review your pull request and may ask you to make changes or provide additional information. Once the changes are satisfactory, we will merge the pull request into the ``dev`` branch. Thank you for your contribution to pyROX!
+
+Future directions
+-----------------
+We continue to develop pyROX and add new features. Some of the planned future directions are:
+- Support for additional databases, such as VALD and ExoAtom.
+- Support for conversion to other radiative-transfer formats.
+- More physically motivated line-wing cutoffs and profiles.
+- Shared-memory parallelisation.
+- Just-in-time compilation.
+
+If you have other suggestions or want to encourage the development of a specific feature, please do not hesitate to reach out on `GitHub <https://github.com/samderegt/pyROX/issues>`_.
