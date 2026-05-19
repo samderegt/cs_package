@@ -385,10 +385,8 @@ class LBL_Kurucz(LineByLine):
             # Get the width/shift parameters
             number_density_perturber = number_density * info['VMR'] # [m^-3]
             number_density_reference = info['number_density_reference']
-            A = info['A'] # [s^-1](-ish)
-            b = info['b']
 
-            for nu_0_i in info['nu_0']:
+            for nu_0_i, A_i, b_i in zip(info['nu_0'], info['A'], info['b']):
                 # Check where to replace
                 idx = np.isclose(nu_0_static, nu_0_i, atol=1e-8)
                 if np.sum(idx) != 1:
@@ -398,13 +396,13 @@ class LBL_Kurucz(LineByLine):
                 if gamma is not None:
                     # Width
                     gamma[idx] = (
-                        A * T**b * number_density_perturber / number_density_reference
+                        A_i * T**b_i * number_density_perturber / number_density_reference
                     ) # [s^-1]
                     continue
                 
                 # Shift
                 nu_0[idx] += (
-                    A * T**b * number_density_perturber / number_density_reference
+                    A_i * T**b_i * number_density_perturber / number_density_reference
                 ) # [s^-1]
 
         if gamma is not None:
