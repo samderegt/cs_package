@@ -35,7 +35,7 @@ affiliations:
     index: 2
   - name: Centre for Exoplanets and Habitability, University of Warwick, Gibbet Hill Road, Coventry CV4 7AL, UK
     index: 3
-date: 19 May 2026
+date: 23 June 2026
 bibliography: paper.bib
 
 ---
@@ -58,11 +58,11 @@ To help resolve this challenge, we present `pyROX`, a user-friendly Python packa
 
 
 # State of the field
-Existing open-source codes, such as [`Cthulhu`](https://github.com/MartianColonist/Cthulhu) [@Agrawal_ea_2024], [`ExoCross`](https://github.com/Trovemaster/exocross) [@Yurchenko_ea_2018; @Zhang_ea_2024] and [`HELIOS-K`](https://github.com/exoclime/HELIOS-K) [@Grimm_ea_2015; @Grimm_ea_2021], can calculate cross-sections at comparable performances to `pyROX`. However, `ExoCross` is written in Fortran and `HELIOS-K` utilises GPU-acceleration which can limit their use to experts with the appropriate hardware. `pyROX` is a Python code that runs only on CPUs which should make it accessible for the opacity needs and hardware of most astronomers. In contrast to `Cthulhu`, `pyROX` supports cross-section calculations on any user-provided wavelength or wavenumber grid. This enables the user to fix the spectral resolution ($\mathcal{R}=\lambda/\Delta\lambda$), which cannot be achieved with equal wavelength- or wavenumber-spacing. Unlike the aforementioned codes, `pyROX` can also account for collision-induced absorption, which is a considerable source of opacity in sub-stellar atmospheres [@Freedman_ea_2014]. 
+Existing open-source codes, such as [`Cthulhu`](https://github.com/MartianColonist/Cthulhu) [@Agrawal_ea_2024], [`ExoCross`](https://github.com/Trovemaster/exocross) [@Yurchenko_ea_2018; @Zhang_ea_2024] and [`HELIOS-K`](https://github.com/exoclime/HELIOS-K) [@Grimm_ea_2015; @Grimm_ea_2021], can calculate cross-sections at comparable performance to `pyROX`. However, `ExoCross` is written in Fortran and `HELIOS-K` utilises GPU-acceleration which can limit their use to experts with the appropriate hardware. `pyROX` is a Python code that runs only on CPUs which should make it accessible for the opacity needs and hardware of most astronomers. In contrast to `Cthulhu`, `pyROX` supports cross-section calculations on any user-provided wavelength or wavenumber grid. This enables the user to fix the spectral resolution ($\mathcal{R}=\lambda/\Delta\lambda$), which cannot be achieved with equal wavelength- or wavenumber-spacing. Unlike the aforementioned codes, `pyROX` can also account for collision-induced absorption, which is a considerable source of opacity in sub-stellar atmospheres [@Freedman_ea_2014]. 
 
 
 # Software design
-We aim to provide an easy-to-use and comprehensive tool to calculate cross-sections for atmospheric gases. Although more efficient languages exist, we choose to develop `pyROX` in Python to keep it readily accessible to the astronomy community. The main workflow of `pyROX` is as follows:
+We aim to provide an easy-to-use and comprehensive tool to calculate cross-sections for atmospheric gases. Although more efficient languages exist, we chose to develop `pyROX` in Python to keep it readily accessible to the astronomy community. The main workflow of `pyROX` is as follows:
 
 - **Download and read files**: The necessary input files (line lists, partition functions, broadening coefficients or CIA files) can be downloaded with a simple command. When reading the relevant parameters, `pyROX` automatically handles the different data structures of the supported databases (ExoMol, HITRAN/HITEMP, Kurucz, Borysow). 
 - **Compute line-strengths and -widths**: For line-opacity calculations, `pyROX` calculates the strength and broadening-widths for each line transition at the user-provided pressure and temperature. Support is offered for various [pressure-broadening descriptions](https://py-rox.readthedocs.io/en/latest/notebooks/pressure_broadening.html), namely (1) transition-specific broadening from the ExoMol data, (2) parameterised broadening based on the rotational quantum numbers, or (3) constant coefficients. At this point, `pyROX` can speed up the line-profile computation by selecting only the main line-strength contributors.
@@ -76,7 +76,7 @@ Documentation for `pyROX` is available at [https://py-rox.readthedocs.io/en/late
 
 
 # Research impact statement
-Recent publications from our team have employed `pyROX`-computed cross-sections [e.g. @de_Regt_ea_2025; @Gonzalez_Picos_ea_2025b; @Gonzalez_Picos_ea_2025c; @Siebenaler_ea_2025; @Siebenaler_ea_2026], and this reach is currently expanding to other research groups as well [e.g @van_Sluijs_ea_2025; @Zhang_ea_2026].
+Recent publications from our team have employed `pyROX`-computed cross-sections [e.g. @de_Regt_ea_2025; @Gonzalez_Picos_ea_2025b; @Gonzalez_Picos_ea_2025c; @Siebenaler_ea_2025; @Siebenaler_ea_2026], and this reach is currently expanding to other research groups as well [e.g. @van_Sluijs_ea_2025; @Zhang_ea_2026].
 
 
 # AI usage disclosure
