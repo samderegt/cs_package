@@ -25,7 +25,9 @@ authors:
   - name: Louis Siebenaler
     orcid: 0009-0005-3389-8819
     affiliation: 1
-  - name: Darío González Picos
+  - name:  
+      given-names: Darío
+      surname: González Picos
     orcid: 0000-0001-9282-9462
     affiliation: 1
 affiliations:
